@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { loadAll, saveMeeting, seedDemo, setTaskStatus } from "@/lib/syncexec.db.functions";
 import {
   DEFAULT_WEBHOOK, DEMO_TRANSCRIPT, SEED, TODAY, deterministicAnalyze, isUrgent, parseSpeakers,
   type ActionItem, type Analysis, type Decision,
@@ -57,14 +57,10 @@ function App() {
   useEffect(() => { localStorage.setItem("syncexec.webhook", webhook); }, [webhook]);
 
   async function refresh() {
-    const [d, a, m] = await Promise.all([
-      supabase.from("decisions").select("*").order("created_at"),
-      supabase.from("action_items").select("*").order("deadline"),
-      supabase.from("meetings").select("id,date,title"),
-    ]);
-    setDecisions((d.data ?? []) as Decision[]);
-    setItems((a.data ?? []) as ActionItem[]);
-    setMeetings(m.data ?? []);
+    const r = await loadAll();
+    setDecisions(r.decisions as Decision[]);
+    setItems(r.items as ActionItem[]);
+    setMeetings(r.meetings);
   }
 
   async function sendHook(payload: Record<string, unknown>) {
@@ -76,13 +72,7 @@ function App() {
 
   async function seed() {
     setBusy("seed");
-    await supabase.from("meetings").delete().in("title", SEED.map((s) => s.title));
-    for (const s of SEED) {
-      const { data: m } = await supabase.from("meetings").insert({ title: s.title, date: s.date, raw_transcript: "" }).select().single();
-      if (!m) continue;
-      await supabase.from("decisions").insert(s.decisions.map((d) => ({ ...d, meeting_id: m.id, created_at: `${s.date}T10:00:00Z` })));
-      await supabase.from("action_items").insert(s.tasks.map((t) => ({ ...t, meeting_id: m.id, synced_to_tracker: true })));
-    }
+    await seedDemo();
     await refresh();
     setBusy("");
     setNotice({ kind: "ok", text: "Oct 10 & Oct 20 memory seeded: 4 decisions, 4 tasks." });
@@ -118,12 +108,10 @@ function App() {
     const ds = analysis.extracted_decisions.filter((d) => d.checked);
     const ts = analysis.action_items.filter((t) => t.checked);
     const rejected = analysis.conflicts.filter((c) => c.resolution === "rejected").length;
-    const { data: m, error } = await supabase.from("meetings").insert({ title, date, raw_transcript: transcript }).select().single();
-    if (error || !m) { setBusy(""); setNotice({ kind: "err", text: error?.message ?? "Save failed" }); return; }
     const approvedDecisions = ds.map((d) => ({ speaker: d.speaker, decision_text: `[${date}] ${d.decision_text}` }));
     const approvedTasks = ts.map((t) => ({ task: t.task, owner: t.owner, deadline: t.deadline, status: "open", synced_to_tracker: true }));
-    if (approvedDecisions.length) await supabase.from("decisions").insert(approvedDecisions.map((d) => ({ ...d, meeting_id: m.id })));
-    if (approvedTasks.length) await supabase.from("action_items").insert(approvedTasks.map((t) => ({ ...t, meeting_id: m.id })));
+    const saved = await saveMeeting({ data: { title, date, transcript, decisions: approvedDecisions, tasks: approvedTasks.map(({ task, owner, deadline }) => ({ task, owner, deadline })) } });
+    if (!saved.ok) { setBusy(""); setNotice({ kind: "err", text: saved.error }); return; }
     const hookOk = await sendHook({
       event_type: "confirm_and_execute", meeting_title: title, meeting_date: date,
       approved_decisions: approvedDecisions, approved_tasks: approvedTasks,
@@ -179,7 +167,7 @@ function App() {
         {tab === "review" && <Review analysis={analysis} setAnalysis={setAnalysis} busy={busy === "confirm"} onConfirm={confirm} goIngest={() => setTab("ingest")} />}
         {tab === "vault" && <Vault decisions={decisions} meetings={meetings} />}
         {tab === "digest" && <Digest items={items} decisions={decisions} sendHook={sendHook} setNotice={setNotice} onToggle={async (it) => {
-          await supabase.from("action_items").update({ status: it.status === "open" ? "completed" : "open" }).eq("id", it.id);
+          await setTaskStatus({ data: { id: it.id, status: it.status === "open" ? "completed" : "open" } });
           await refresh();
         }} />}
       </main>
