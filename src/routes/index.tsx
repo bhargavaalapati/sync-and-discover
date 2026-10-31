@@ -132,7 +132,7 @@ function App() {
     await refresh();
     setAnalysis(null);
     setBusy("");
-    setNotice({ kind: "ok", text: `Executed: ${approvedDecisions.length} decisions saved, ${approvedTasks.length} tasks synced, ${rejected} conflicts rejected.${hookOk ? " Webhook delivered." : ""}` });
+    setNotice({ kind: "ok", text: `Executed: ${approvedDecisions.length} decisions saved, ${approvedTasks.length} tasks synced, ${rejected} conflicts rejected.${hookOk ? " Webhook delivered." : " Webhook not delivered — check that your Make.com scenario is switched on."}` });
   }
 
   return (
