@@ -62,7 +62,7 @@ export function toIsoDate(s: string): string | null {
   const m = s.match(/(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:,\s*(\d{4}))?/i);
   if (!m) return null;
   const mo = MONTHS.indexOf(m[1]!.toLowerCase()) + 1;
-  return `${m[3] ?? "2026"}-${String(mo).padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+  return `${m[3] ?? "2026"}-${String(mo).padStart(2, "0")}-${m[2]!.padStart(2, "0")}`;
 }
 
 const TOPICS: { key: string; match: RegExp; value: (s: string) => string | null; label: string }[] = [
