@@ -13,7 +13,7 @@ describe("deterministic parser", () => {
   });
   it("links the MongoDB conflict to the migration task", () => {
     const c = r.conflicts.find((c) => /mongo/i.test(c.new_statement))!;
-    expect(r.action_items[c.related_task_index!].task).toMatch(/MongoDB cluster migration/);
+    expect(r.action_items[c.related_task_index!]?.task).toMatch(/MongoDB cluster migration/);
   });
   it("urgent = open and due Nov 1 or 2", () => {
     expect(isUrgent({ status: "open", deadline: "2026-11-02" })).toBe(true);
