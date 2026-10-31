@@ -4,7 +4,7 @@ import { z } from "zod";
 export const analyzeWithAI = createServerFn({ method: "POST" })
   .inputValidator((i) => z.object({ transcript: z.string().min(1).max(50000), history: z.array(z.object({ speaker: z.string(), decision_text: z.string() })) }).parse(i))
   .handler(async ({ data }) => {
-    const key = process.env.LOVABLE_API_KEY;
+    const key = process.env['LOVABLE_API_KEY'];
     if (!key) return { ok: false as const, error: "AI not configured" };
     const prompt = `You are a meeting governance agent. Historical decisions:\n${data.history.map((h, i) => `${i + 1}. ${h.speaker}: ${h.decision_text}`).join("\n")}\n\nNew transcript:\n${data.transcript}\n\nReturn strict JSON: {"extracted_decisions":[{"speaker","decision_text"}],"action_items":[{"task","owner","deadline"}],"conflicts":[{"speaker","new_statement","contradicted_decision","past_meeting_date","severity":"HIGH","reason","related_decision_index","related_task_index"}]}. Use full speaker labels like "Priya (PM)". Deadlines as YYYY-MM-DD. related_*_index are 0-based indexes into your extracted arrays or null. Flag every new decision that contradicts a historical one.`;
     try {

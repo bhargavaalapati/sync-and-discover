@@ -52,7 +52,7 @@ export function parseSpeakers(text: string) {
   const counts = new Map<string, number>();
   for (const line of text.split("\n")) {
     const m = line.match(/^\s*([^:]{2,40}):\s*\S/);
-    if (m) counts.set(m[1].trim(), (counts.get(m[1].trim()) ?? 0) + 1);
+    if (m) counts.set(m[1]!.trim(), (counts.get(m[1]!.trim()) ?? 0) + 1);
   }
   return [...counts.entries()].map(([speaker, lines]) => ({ speaker, lines }));
 }
