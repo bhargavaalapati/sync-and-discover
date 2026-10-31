@@ -270,11 +270,11 @@ function Review({ analysis, setAnalysis, busy, onConfirm, goIngest }: {
   const a = analysis;
   const resolve = (i: number, resolution: "accepted" | "rejected") => {
     const next: Analysis = structuredClone(a);
-    const c = next.conflicts[i];
+    const c = next.conflicts[i]!;
     c.resolution = resolution;
     const on = resolution === "accepted";
-    if (c.related_decision_index != null && next.extracted_decisions[c.related_decision_index]) next.extracted_decisions[c.related_decision_index].checked = on;
-    if (c.related_task_index != null && next.action_items[c.related_task_index]) next.action_items[c.related_task_index].checked = on;
+    if (c.related_decision_index != null && next.extracted_decisions[c.related_decision_index]) next.extracted_decisions[c.related_decision_index]!.checked = on;
+    if (c.related_task_index != null && next.action_items[c.related_task_index]) next.action_items[c.related_task_index]!.checked = on;
     setAnalysis(next);
   };
   const upd = (fn: (n: Analysis) => void) => { const n = structuredClone(a); fn(n); setAnalysis(n); };
@@ -305,9 +305,9 @@ function Review({ analysis, setAnalysis, busy, onConfirm, goIngest }: {
         <h3 className="font-semibold">Extracted Decisions</h3>
         {a.extracted_decisions.map((d, i) => (
           <div key={i} className={`flex flex-wrap items-center gap-2 ${d.checked ? "" : "opacity-50"}`}>
-            <input type="checkbox" className="h-4 w-4 accent-primary" checked={d.checked} onChange={(e) => upd((n) => { n.extracted_decisions[i].checked = e.target.checked; })} />
-            <input className="field w-36" value={d.speaker} onChange={(e) => upd((n) => { n.extracted_decisions[i].speaker = e.target.value; })} />
-            <input className="field min-w-0 flex-1" value={d.decision_text} onChange={(e) => upd((n) => { n.extracted_decisions[i].decision_text = e.target.value; })} />
+            <input type="checkbox" className="h-4 w-4 accent-primary" checked={d.checked} onChange={(e) => upd((n) => { n.extracted_decisions[i]!.checked = e.target.checked; })} />
+            <input className="field w-36" value={d.speaker} onChange={(e) => upd((n) => { n.extracted_decisions[i]!.speaker = e.target.value; })} />
+            <input className="field min-w-0 flex-1" value={d.decision_text} onChange={(e) => upd((n) => { n.extracted_decisions[i]!.decision_text = e.target.value; })} />
           </div>
         ))}
       </section>
@@ -315,10 +315,10 @@ function Review({ analysis, setAnalysis, busy, onConfirm, goIngest }: {
         <h3 className="font-semibold">Extracted Action Items</h3>
         {a.action_items.map((t, i) => (
           <div key={i} className={`flex flex-wrap items-center gap-2 ${t.checked ? "" : "opacity-50"}`}>
-            <input type="checkbox" className="h-4 w-4 accent-primary" checked={t.checked} onChange={(e) => upd((n) => { n.action_items[i].checked = e.target.checked; })} />
-            <input className="field min-w-0 flex-1" value={t.task} onChange={(e) => upd((n) => { n.action_items[i].task = e.target.value; })} />
-            <input className="field w-36" value={t.owner} onChange={(e) => upd((n) => { n.action_items[i].owner = e.target.value; })} />
-            <input className="field w-36 font-mono" value={t.deadline} onChange={(e) => upd((n) => { n.action_items[i].deadline = e.target.value; })} />
+            <input type="checkbox" className="h-4 w-4 accent-primary" checked={t.checked} onChange={(e) => upd((n) => { n.action_items[i]!.checked = e.target.checked; })} />
+            <input className="field min-w-0 flex-1" value={t.task} onChange={(e) => upd((n) => { n.action_items[i]!.task = e.target.value; })} />
+            <input className="field w-36" value={t.owner} onChange={(e) => upd((n) => { n.action_items[i]!.owner = e.target.value; })} />
+            <input className="field w-36 font-mono" value={t.deadline} onChange={(e) => upd((n) => { n.action_items[i]!.deadline = e.target.value; })} />
           </div>
         ))}
       </section>
