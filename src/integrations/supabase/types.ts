@@ -14,7 +14,103 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      action_items: {
+        Row: {
+          created_at: string
+          deadline: string | null
+          id: string
+          meeting_id: string | null
+          owner: string
+          status: string
+          synced_to_tracker: boolean
+          task: string
+        }
+        Insert: {
+          created_at?: string
+          deadline?: string | null
+          id?: string
+          meeting_id?: string | null
+          owner: string
+          status?: string
+          synced_to_tracker?: boolean
+          task: string
+        }
+        Update: {
+          created_at?: string
+          deadline?: string | null
+          id?: string
+          meeting_id?: string | null
+          owner?: string
+          status?: string
+          synced_to_tracker?: boolean
+          task?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "action_items_meeting_id_fkey"
+            columns: ["meeting_id"]
+            isOneToOne: false
+            referencedRelation: "meetings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      decisions: {
+        Row: {
+          created_at: string
+          decision_text: string
+          id: string
+          meeting_id: string | null
+          speaker: string
+        }
+        Insert: {
+          created_at?: string
+          decision_text: string
+          id?: string
+          meeting_id?: string | null
+          speaker: string
+        }
+        Update: {
+          created_at?: string
+          decision_text?: string
+          id?: string
+          meeting_id?: string | null
+          speaker?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "decisions_meeting_id_fkey"
+            columns: ["meeting_id"]
+            isOneToOne: false
+            referencedRelation: "meetings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meetings: {
+        Row: {
+          created_at: string
+          date: string
+          id: string
+          raw_transcript: string | null
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          id?: string
+          raw_transcript?: string | null
+          title: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          id?: string
+          raw_transcript?: string | null
+          title?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

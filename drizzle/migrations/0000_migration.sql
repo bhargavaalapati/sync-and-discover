@@ -1,0 +1,11 @@
+CREATE TABLE public.meetings (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), title text NOT NULL, date text NOT NULL, raw_transcript text, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE public.decisions (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), meeting_id uuid REFERENCES public.meetings(id) ON DELETE CASCADE, speaker text NOT NULL, decision_text text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE public.action_items (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), meeting_id uuid REFERENCES public.meetings(id) ON DELETE CASCADE, task text NOT NULL, owner text NOT NULL, deadline text, status text NOT NULL DEFAULT 'open', synced_to_tracker boolean NOT NULL DEFAULT false, created_at timestamptz NOT NULL DEFAULT now());
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.meetings, public.decisions, public.action_items TO anon, authenticated;
+GRANT ALL ON public.meetings, public.decisions, public.action_items TO service_role;
+ALTER TABLE public.meetings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.decisions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.action_items ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "demo open access" ON public.meetings FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "demo open access" ON public.decisions FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "demo open access" ON public.action_items FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
