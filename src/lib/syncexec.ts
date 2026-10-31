@@ -61,7 +61,7 @@ const MONTHS = ["january","february","march","april","may","june","july","august
 export function toIsoDate(s: string): string | null {
   const m = s.match(/(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:,\s*(\d{4}))?/i);
   if (!m) return null;
-  const mo = MONTHS.indexOf(m[1].toLowerCase()) + 1;
+  const mo = MONTHS.indexOf(m[1]!.toLowerCase()) + 1;
   return `${m[3] ?? "2026"}-${String(mo).padStart(2, "0")}-${m[2].padStart(2, "0")}`;
 }
 
@@ -69,7 +69,7 @@ const TOPICS: { key: string; match: RegExp; value: (s: string) => string | null;
   { key: "launch", label: "public beta launch date", match: /launch (date|timeline)|beta launch/i, value: (s) => toIsoDate(s) },
   { key: "database", label: "primary production database", match: /database|postgres|mongo|nosql/i,
     value: (s) => (/to mongodb|mongodb by|switching.*mongo/i.test(s) ? "mongodb" : /mongo/i.test(s) && !/postgres/i.test(s) ? "mongodb" : /postgres/i.test(s) ? "postgresql" : null) },
-  { key: "budget", label: "Q4 beta marketing budget", match: /budget/i, value: (s) => s.match(/\$\s?([\d,]+)/)?.[1].replace(/,/g, "") ?? null },
+  { key: "budget", label: "Q4 beta marketing budget", match: /budget/i, value: (s) => s.match(/\$\s?([\d,]+)/)?.[1]?.replace(/,/g, "") ?? null },
 ];
 
 function cleanLead(s: string) {
@@ -87,8 +87,8 @@ export function deterministicAnalyze(transcript: string, history: Decision[]): A
   for (const line of transcript.split("\n")) {
     const m = line.match(/^\s*([^:]{2,40}):\s*(.+)$/);
     if (!m) continue;
-    const speaker = m[1].trim();
-    const body = m[2].replace(/for action items:\s*/i, "");
+    const speaker = m[1]!.trim();
+    const body = m[2]!.replace(/for action items:\s*/i, "");
     const sentences = body.split(/(?<=[.!?])\s+/);
     for (const raw of sentences) {
       const s = raw.trim();
