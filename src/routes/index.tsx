@@ -112,7 +112,6 @@ function App() {
   async function confirm() {
     if (!analysis) return;
     setBusy("confirm");
-    const { decisions: ds, tasks: ts } = approvedItems(analysis);
     const rejected = analysis.conflicts.filter((c) => c.resolution === "rejected").length;
     const payload = confirmationPayload(analysis, title, date);
     const approvedDecisions = payload.approved_decisions;
