@@ -1,5 +1,9 @@
 import { Button } from "@/components/ui/button";
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, Copy, Send, Zap } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { ExportActions, copyText } from "@/components/export-actions";
+import { confirmationPayload, reminderSummary, governingBrief, tasksMarkdown } from "@/lib/syncexec.exports";
+import { toast } from "sonner";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { loadAll, saveMeeting, seedDemo, setTaskStatus } from "@/lib/syncexec.db.functions";
@@ -110,15 +114,12 @@ function App() {
     setBusy("confirm");
     const { decisions: ds, tasks: ts } = approvedItems(analysis);
     const rejected = analysis.conflicts.filter((c) => c.resolution === "rejected").length;
-    const approvedDecisions = ds.map((d) => ({ speaker: d.speaker, decision_text: `[${date}] ${d.decision_text}` }));
-    const approvedTasks = ts.map((t) => ({ task: t.task, owner: t.owner, deadline: t.deadline, status: "open", synced_to_tracker: true }));
+    const payload = confirmationPayload(analysis, title, date);
+    const approvedDecisions = payload.approved_decisions;
+    const approvedTasks = payload.approved_tasks;
     const saved = await saveMeeting({ data: { title, date, transcript, decisions: approvedDecisions, tasks: approvedTasks.map(({ task, owner, deadline }) => ({ task, owner, deadline })) } });
     if (!saved.ok) { setBusy(""); setNotice({ kind: "err", text: saved.error }); return; }
-    const hookOk = await sendHook({
-      event_type: "confirm_and_execute", meeting_title: title, meeting_date: date,
-      approved_decisions: approvedDecisions, approved_tasks: approvedTasks,
-      target_person: "All Team", digest_summary: "Synced from Review Gate",
-    });
+    const hookOk = await sendHook(payload);
     await refresh();
     setAnalysis(null);
     setBusy("");
@@ -166,8 +167,8 @@ function App() {
         {tab === "ingest" && (
           <Ingest {...{ title, setTitle, date, setDate, transcript, setTranscript }} memory={decisions.length} busy={busy === "analyze"} onAnalyze={analyze} />
         )}
-        {tab === "review" && <Review meetingDate={date} analysis={analysis} setAnalysis={setAnalysis} busy={busy === "confirm"} onConfirm={confirm} goIngest={() => setTab("ingest")} />}
-        {tab === "vault" && <Vault decisions={decisions} meetings={meetings} />}
+        {tab === "review" && <Review meetingTitle={title} meetingDate={date} analysis={analysis} setAnalysis={setAnalysis} busy={busy === "confirm"} onConfirm={confirm} goIngest={() => setTab("ingest")} />}
+        {tab === "vault" && <Vault decisions={decisions} meetings={meetings} sendHook={sendHook} />}
         {tab === "digest" && <Digest items={items} decisions={decisions} sendHook={sendHook} setNotice={setNotice} onToggle={async (it) => {
           await setTaskStatus({ data: { id: it.id, status: it.status === "open" ? "completed" : "open" } });
           await refresh();
@@ -248,8 +249,8 @@ function Ingest(p: {
   );
 }
 
-function Review({ analysis, setAnalysis, busy, onConfirm, goIngest, meetingDate }: {
-  meetingDate: string;
+function Review({ analysis, setAnalysis, busy, onConfirm, goIngest, meetingDate, meetingTitle }: {
+  meetingDate: string; meetingTitle: string;
   analysis: Analysis | null; setAnalysis: (a: Analysis) => void; busy: boolean; onConfirm: () => void; goIngest: () => void;
 }) {
   if (!analysis) return (
@@ -324,19 +325,58 @@ function Review({ analysis, setAnalysis, busy, onConfirm, goIngest, meetingDate 
           </div>
         ))}
       </section>
-      <button className={`${btnPrimary} w-full py-3 text-base`} disabled={busy} onClick={onConfirm}>
+      <div className="flex flex-wrap items-center gap-2">
+      <Button className="h-auto min-w-0 flex-1 whitespace-normal py-3 text-base" disabled={busy} onClick={onConfirm}>
         {busy ? "Executing…" : `Confirm & Execute Approved Items (${approved.decisions.length} decisions · ${approved.tasks.length} tasks)`}
-      </button>
+      </Button>
+      <ExportActions markdown={tasksMarkdown(approved.tasks)} payload={confirmationPayload(a, meetingTitle, meetingDate)} filename={`syncexec-review-${meetingDate}.json`} />
+      </div>
     </div>
   );
 }
 
-function Vault({ decisions, meetings }: { decisions: Decision[]; meetings: { id: string; date: string; title: string }[] }) {
+function Vault({ decisions, meetings, sendHook }: { decisions: Decision[]; meetings: { id: string; date: string; title: string }[]; sendHook: (payload: Record<string, unknown>) => Promise<boolean> }) {
   const [speaker, setSpeaker] = useState("All");
   const [q, setQ] = useState("");
+  const [briefOpen, setBriefOpen] = useState(false);
+  const [sending, setSending] = useState(false);
+  const brief = useMemo(() => governingBrief(decisions, meetings), [decisions, meetings]);
   const list = decisions.filter((d) => (speaker === "All" || d.speaker === speaker) && d.decision_text.toLowerCase().includes(q.toLowerCase())).reverse();
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl font-semibold">Decision Memory Vault</h2>
+        <Button className="h-auto whitespace-normal" disabled={!decisions.length} onClick={() => setBriefOpen(true)}><Zap className="h-4 w-4 shrink-0" />⚡ Generate Pre-Read Brief for Next Sync</Button>
+      </div>
+      <Dialog open={briefOpen} onOpenChange={setBriefOpen}>
+        <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Pre-Meeting Context Brief</DialogTitle>
+            <DialogDescription>Next Sync · Active Governing Decisions</DialogDescription>
+          </DialogHeader>
+          <div className="divide-y divide-border">
+            {brief.sections.map((section) => <section key={section.category} className="py-4">
+              <h3 className="mb-2 font-semibold text-primary">{section.category}</h3>
+              {section.entries.length ? <ul className="space-y-3">{section.entries.map(({ decision, date }) => <li key={decision.id} className="min-w-0">
+                <p className="break-words text-sm">{decision.decision_text.replace(/^\[[^\]]+\]\s*/, "")}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{decision.speaker} · {date}</p>
+              </li>)}</ul> : <p className="text-sm text-muted-foreground">No governing decisions recorded.</p>}
+            </section>)}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" className="h-auto whitespace-normal" onClick={() => void copyText(brief.text, "Pre-read copied to clipboard")}><Copy className="h-4 w-4 shrink-0" />Copy Pre-Read to Clipboard</Button>
+            <Button className="h-auto whitespace-normal" disabled={sending} onClick={async () => {
+              setSending(true);
+              try {
+                const ok = await sendHook({ event_type: "pre_meeting_brief", meeting_title: "Next Sync", meeting_date: TODAY, approved_decisions: brief.decisions, approved_tasks: [], target_person: "All Team", digest_summary: brief.text, slack_text: brief.text });
+                if (ok) toast.success("Pre-read sent to Slack webhook");
+                else toast.error("Pre-read not delivered. Check your webhook scenario.");
+              } catch { toast.error("Pre-read not delivered. Please try again."); }
+              finally { setSending(false); }
+            }}><Send className="h-4 w-4 shrink-0" />{sending ? "Sending…" : "Send Pre-Read to Slack Webhook"}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <div className="flex flex-wrap gap-2">
         <input className="field flex-1" placeholder="Search decisions…" value={q} onChange={(e) => setQ(e.target.value)} />
         {["All", "Priya (PM)", "Rahul (Eng)"].map((s) => (
@@ -421,7 +461,8 @@ ${l(authored.map((d) => `${d.decision_text} (${d.speaker})`))}`);
               {isUrgent(it) && <span className="pulse-urgent rounded bg-destructive px-2 py-0.5 font-mono text-xs font-bold text-destructive-foreground">URGENT: DUE IN &lt; 48H</span>}
               <button className={btnGhost} onClick={() => onToggle(it)}>{it.status === "open" ? "○ open" : "● completed"}</button>
               <button className={btnGhost} onClick={async () => {
-                const ok = await sendHook({ event_type: "deadline_reminder", target_person: it.owner, approved_tasks: [it], digest_summary: `Urgent 48h deadline reminder: ${it.task} due ${it.deadline}` });
+                const summary = reminderSummary(it);
+                const ok = await sendHook({ event_type: "deadline_reminder", target_person: it.owner, approved_tasks: [it], digest_summary: summary, slack_text: summary });
                 if (ok) setNotice({ kind: "ok", text: `Reminder sent to ${it.owner}.` });
               }}>Send Reminder to Webhook</button>
             </li>
@@ -431,10 +472,13 @@ ${l(authored.map((d) => `${d.decision_text} (${d.speaker})`))}`);
       {digest && (
         <section className="panel space-y-4 border-primary/40 p-5">
           <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed">{digest}</pre>
-          <button className={btnPrimary} onClick={async () => {
+          <div className="flex flex-wrap items-center gap-2">
+          <Button className="h-auto whitespace-normal" onClick={async () => {
             const ok = await sendHook({ event_type: "weekly_digest", target_person: person, digest_summary: digest, approved_tasks: open });
             if (ok) setNotice({ kind: "ok", text: "Weekly digest posted to webhook." });
-          }}>Post Weekly Digest to Slack/Webhook</button>
+          }}>Post Weekly Digest to Slack/Webhook</Button>
+          <ExportActions markdown={tasksMarkdown(mine)} payload={{ event_type: "weekly_digest", target_person: person, digest_summary: digest, approved_tasks: open }} filename={`syncexec-digest-${TODAY}.json`} />
+          </div>
         </section>
       )}
     </div>
