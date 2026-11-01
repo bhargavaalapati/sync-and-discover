@@ -1,8 +1,11 @@
+import { Button } from "@/components/ui/button";
+import { ShieldCheck } from "lucide-react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { loadAll, saveMeeting, seedDemo, setTaskStatus } from "@/lib/syncexec.db.functions";
 import {
   DEFAULT_WEBHOOK, DEMO_TRANSCRIPT, SEED, TODAY, deterministicAnalyze, isUrgent, parseSpeakers,
+  approvedItems, isConflictBlocked, resolveConflict, shortDate,
   type ActionItem, type Analysis, type Decision,
 } from "@/lib/syncexec";
 import { analyzeWithAI, postWebhook } from "@/lib/syncexec.functions";
@@ -105,8 +108,7 @@ function App() {
   async function confirm() {
     if (!analysis) return;
     setBusy("confirm");
-    const ds = analysis.extracted_decisions.filter((d) => d.checked);
-    const ts = analysis.action_items.filter((t) => t.checked);
+    const { decisions: ds, tasks: ts } = approvedItems(analysis);
     const rejected = analysis.conflicts.filter((c) => c.resolution === "rejected").length;
     const approvedDecisions = ds.map((d) => ({ speaker: d.speaker, decision_text: `[${date}] ${d.decision_text}` }));
     const approvedTasks = ts.map((t) => ({ task: t.task, owner: t.owner, deadline: t.deadline, status: "open", synced_to_tracker: true }));
@@ -164,7 +166,7 @@ function App() {
         {tab === "ingest" && (
           <Ingest {...{ title, setTitle, date, setDate, transcript, setTranscript }} memory={decisions.length} busy={busy === "analyze"} onAnalyze={analyze} />
         )}
-        {tab === "review" && <Review analysis={analysis} setAnalysis={setAnalysis} busy={busy === "confirm"} onConfirm={confirm} goIngest={() => setTab("ingest")} />}
+        {tab === "review" && <Review meetingDate={date} analysis={analysis} setAnalysis={setAnalysis} busy={busy === "confirm"} onConfirm={confirm} goIngest={() => setTab("ingest")} />}
         {tab === "vault" && <Vault decisions={decisions} meetings={meetings} />}
         {tab === "digest" && <Digest items={items} decisions={decisions} sendHook={sendHook} setNotice={setNotice} onToggle={async (it) => {
           await setTaskStatus({ data: { id: it.id, status: it.status === "open" ? "completed" : "open" } });
@@ -246,7 +248,8 @@ function Ingest(p: {
   );
 }
 
-function Review({ analysis, setAnalysis, busy, onConfirm, goIngest }: {
+function Review({ analysis, setAnalysis, busy, onConfirm, goIngest, meetingDate }: {
+  meetingDate: string;
   analysis: Analysis | null; setAnalysis: (a: Analysis) => void; busy: boolean; onConfirm: () => void; goIngest: () => void;
 }) {
   if (!analysis) return (
@@ -256,15 +259,8 @@ function Review({ analysis, setAnalysis, busy, onConfirm, goIngest }: {
     </div>
   );
   const a = analysis;
-  const resolve = (i: number, resolution: "accepted" | "rejected") => {
-    const next: Analysis = structuredClone(a);
-    const c = next.conflicts[i]!;
-    c.resolution = resolution;
-    const on = resolution === "accepted";
-    if (c.related_decision_index != null && next.extracted_decisions[c.related_decision_index]) next.extracted_decisions[c.related_decision_index]!.checked = on;
-    if (c.related_task_index != null && next.action_items[c.related_task_index]) next.action_items[c.related_task_index]!.checked = on;
-    setAnalysis(next);
-  };
+  const resolve = (i: number, resolution: "accepted" | "rejected") => setAnalysis(resolveConflict(a, i, resolution));
+  const approved = approvedItems(a);
   const upd = (fn: (n: Analysis) => void) => { const n = structuredClone(a); fn(n); setAnalysis(n); };
   return (
     <div className="space-y-6">
@@ -273,29 +269,47 @@ function Review({ analysis, setAnalysis, busy, onConfirm, goIngest }: {
         <span className="font-mono text-xs text-muted-foreground">source: {a.source === "ai" ? "AI analysis" : "deterministic parser"}</span>
       </div>
       {a.conflicts.map((c, i) => (
-        <div key={i} className={`rounded-lg border-2 p-5 ${c.resolution === "rejected" ? "border-border bg-muted opacity-70" : c.resolution === "accepted" ? "border-primary/60 bg-primary/5" : "border-destructive bg-destructive/10"}`}>
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <span className="rounded bg-destructive px-2 py-0.5 font-mono text-xs font-bold text-destructive-foreground">⚠ {c.severity} CONFLICT</span>
-            {c.resolution && <span className="rounded border border-border px-2 py-0.5 font-mono text-xs uppercase">{c.resolution === "accepted" ? "Change accepted" : "Change rejected"}</span>}
+        <article aria-label={`${c.conflict_type} conflict`} key={i} className={`min-w-0 rounded-lg border-2 p-5 ${c.resolution === "rejected" ? "border-success/50 bg-success/5" : c.resolution === "accepted" ? "border-primary/60 bg-primary/5" : "border-destructive bg-destructive/10"}`}>
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <span className="max-w-full break-words rounded border border-destructive/50 bg-destructive/10 px-2 py-1 font-mono text-xs font-bold text-destructive">{c.conflict_type.replaceAll("_", " ")}</span>
+            <span className="rounded-full border border-border bg-secondary px-2 py-1 font-mono text-xs">{c.confidence_score} confidence</span>
+            <time className="font-mono text-xs text-muted-foreground">Memory · {c.past_meeting_date}</time>
+            {c.resolution && <span className="text-xs font-medium">{c.resolution === "accepted" ? "Change accepted" : "Change rejected"}</span>}
           </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div><p className="font-mono text-xs uppercase text-muted-foreground">New · {c.speaker}</p><p className="mt-1 font-medium">“{c.new_statement}”</p></div>
-            <div><p className="font-mono text-xs uppercase text-muted-foreground">Contradicts · {c.past_meeting_date}</p><p className="mt-1 line-through decoration-destructive/60">{c.contradicted_decision}</p></div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="min-w-0 rounded-md border border-success/40 bg-muted p-4">
+              <p className="text-xs font-medium text-success">Governing Memory ({shortDate(c.past_meeting_date)})</p>
+              <p className="mt-2 break-words font-semibold">{c.past_value}</p>
+              <p className="mt-2 text-xs text-muted-foreground">{c.past_speaker}</p>
+              <p className="mt-2 break-words text-sm text-muted-foreground">{c.contradicted_decision}</p>
+            </div>
+            <div className="min-w-0 rounded-md border border-destructive/50 bg-destructive/5 p-4">
+              <p className="text-xs font-medium text-destructive">New Transcript Proposal ({shortDate(meetingDate)})</p>
+              <p className={`mt-2 break-words font-semibold ${c.resolution === "rejected" ? "line-through decoration-destructive" : ""}`}>{c.new_value}</p>
+              <p className="mt-2 text-xs text-muted-foreground">{c.speaker}</p>
+              <p className={`mt-2 break-words text-sm text-muted-foreground ${c.resolution === "rejected" ? "line-through decoration-destructive" : ""}`}>{c.new_statement}</p>
+            </div>
+          </div>
+          <div className="mt-3 border-l-2 border-primary bg-muted/50 px-4 py-3">
+            <p className="text-xs font-semibold text-primary">Downstream Task Impact</p>
+            <p className="mt-1 break-words text-sm">{c.related_task_index === null ? c.impacted_task_preview : a.action_items[c.related_task_index]?.task ?? c.impacted_task_preview}</p>
+            {c.related_task_index !== null && <p className="mt-1 text-xs text-muted-foreground">{c.resolution === "rejected" ? "Blocked from execution" : "Blocked if this change is rejected"}</p>}
           </div>
           <p className="mt-3 text-sm text-muted-foreground">{c.reason}</p>
+          {c.resolution === "rejected" && <div className="mt-3 flex items-start gap-2 rounded-md border border-success/40 bg-success/10 p-3 text-sm font-medium text-success"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /><span>Backlog Protected: Unapproved scope blocked from Slack/Tracker</span></div>}
           <div className="mt-4 flex flex-wrap gap-2">
-            <button className={btnPrimary} onClick={() => resolve(i, "accepted")}>Override Past Decision (Accept Change)</button>
-            <button className={btnDanger} onClick={() => resolve(i, "rejected")}>Keep Past Decision (Reject Change)</button>
+            <Button className="h-auto whitespace-normal" onClick={() => resolve(i, "accepted")}>Override Past Decision (Accept Change)</Button>
+            <Button variant="destructive" className="h-auto whitespace-normal" onClick={() => resolve(i, "rejected")}>Keep Past Decision (Reject Change)</Button>
           </div>
-        </div>
+        </article>
       ))}
       <section className="panel space-y-3 p-5">
         <h3 className="font-semibold">Extracted Decisions</h3>
         {a.extracted_decisions.map((d, i) => (
           <div key={i} className={`flex flex-wrap items-center gap-2 ${d.checked ? "" : "opacity-50"}`}>
-            <input type="checkbox" className="h-4 w-4 accent-primary" checked={d.checked} onChange={(e) => upd((n) => { n.extracted_decisions[i]!.checked = e.target.checked; })} />
-            <input className="field w-36" value={d.speaker} onChange={(e) => upd((n) => { n.extracted_decisions[i]!.speaker = e.target.value; })} />
-            <input className="field min-w-0 flex-1" value={d.decision_text} onChange={(e) => upd((n) => { n.extracted_decisions[i]!.decision_text = e.target.value; })} />
+            <input type="checkbox" className="h-4 w-4 accent-primary" aria-label={`Approve decision ${i + 1}`} disabled={isConflictBlocked(a, "decision", i)} checked={d.checked} onChange={(e) => upd((n) => { const item = n.extracted_decisions[i]; if (item) item.checked = e.target.checked; })} />
+            <input className="field w-36" value={d.speaker} onChange={(e) => upd((n) => { const item = n.extracted_decisions[i]; if (item) item.speaker = e.target.value; })} />
+            <input className={`field min-w-0 flex-1 ${isConflictBlocked(a, "decision", i) ? "line-through" : ""}`} value={d.decision_text} onChange={(e) => upd((n) => { const item = n.extracted_decisions[i]; if (item) item.decision_text = e.target.value; })} />
           </div>
         ))}
       </section>
@@ -303,15 +317,15 @@ function Review({ analysis, setAnalysis, busy, onConfirm, goIngest }: {
         <h3 className="font-semibold">Extracted Action Items</h3>
         {a.action_items.map((t, i) => (
           <div key={i} className={`flex flex-wrap items-center gap-2 ${t.checked ? "" : "opacity-50"}`}>
-            <input type="checkbox" className="h-4 w-4 accent-primary" checked={t.checked} onChange={(e) => upd((n) => { n.action_items[i]!.checked = e.target.checked; })} />
-            <input className="field min-w-0 flex-1" value={t.task} onChange={(e) => upd((n) => { n.action_items[i]!.task = e.target.value; })} />
-            <input className="field w-36" value={t.owner} onChange={(e) => upd((n) => { n.action_items[i]!.owner = e.target.value; })} />
-            <input className="field w-36 font-mono" value={t.deadline} onChange={(e) => upd((n) => { n.action_items[i]!.deadline = e.target.value; })} />
+            <input type="checkbox" className="h-4 w-4 accent-primary" aria-label={`Approve task ${i + 1}`} disabled={isConflictBlocked(a, "task", i)} checked={t.checked} onChange={(e) => upd((n) => { const item = n.action_items[i]; if (item) item.checked = e.target.checked; })} />
+            <input className="field min-w-0 flex-1" value={t.task} onChange={(e) => upd((n) => { const item = n.action_items[i]; if (item) item.task = e.target.value; })} />
+            <input className="field w-36" value={t.owner} onChange={(e) => upd((n) => { const item = n.action_items[i]; if (item) item.owner = e.target.value; })} />
+            <input className="field w-36 font-mono" value={t.deadline} onChange={(e) => upd((n) => { const item = n.action_items[i]; if (item) item.deadline = e.target.value; })} />
           </div>
         ))}
       </section>
       <button className={`${btnPrimary} w-full py-3 text-base`} disabled={busy} onClick={onConfirm}>
-        {busy ? "Executing…" : `Confirm & Execute Approved Items (${a.extracted_decisions.filter((d) => d.checked).length} decisions · ${a.action_items.filter((t) => t.checked).length} tasks)`}
+        {busy ? "Executing…" : `Confirm & Execute Approved Items (${approved.decisions.length} decisions · ${approved.tasks.length} tasks)`}
       </button>
     </div>
   );
