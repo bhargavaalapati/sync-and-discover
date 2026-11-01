@@ -10,3 +10,4 @@
 <!-- LOVABLE:END -->
 
 - Keep conflict schemas and approval/rejection helpers browser-safe and shared by AI validation, deterministic analysis, and review; one contract prevents drift and blocks rejected items from execution.
+- Keep webhook summary, governing-brief selection, and export formatting in browser-safe shared helpers; review exports and execution use the same approved-item filtering to prevent rejected work from leaking downstream.
