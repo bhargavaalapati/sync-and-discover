@@ -4,6 +4,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { ExportActions, copyText } from "@/components/export-actions";
 import { confirmationPayload, reminderSummary, governingBrief, tasksMarkdown } from "@/lib/syncexec.exports";
 import { toast } from "sonner";
+import { JudgeDemoBar } from "@/components/judge-demo-bar";
+import { VoiceDictation } from "@/components/voice-dictation";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { loadAll, saveMeeting, seedDemo, setTaskStatus } from "@/lib/syncexec.db.functions";
@@ -50,6 +52,11 @@ function App() {
   const [items, setItems] = useState<ActionItem[]>([]);
   const [meetings, setMeetings] = useState<{ id: string; date: string; title: string }[]>([]);
   const [busy, setBusy] = useState("");
+  const [demoDone, setDemoDone] = useState<number[]>([]);
+  const [demoActive, setDemoActive] = useState<number | null>(null);
+  const [pulseAnalyze, setPulseAnalyze] = useState(false);
+  const [urgentFocus, setUrgentFocus] = useState(false);
+  const markStep = (i: number) => { setDemoActive(i); setDemoDone((d) => (d.includes(i) ? d : [...d, i])); };
 
   const [title, setTitle] = useState("Emergency Pre-Launch Sync");
   const [date, setDate] = useState(TODAY);
@@ -157,6 +164,19 @@ function App() {
       </header>
 
       <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+        <JudgeDemoBar done={demoDone} active={demoActive} steps={[
+          { label: "1. Seed Oct 10 & 20 Memory", badge: decisions.length ? `${decisions.length} Decisions Active` : undefined,
+            onClick: async () => { setDemoActive(0); await seed(); markStep(0); } },
+          { label: "2. Load & Analyze Oct 31 Sync", onClick: () => {
+            setTab("ingest"); setTranscript(DEMO_TRANSCRIPT); setPulseAnalyze(true); markStep(1);
+            setTimeout(() => document.getElementById("analyze-btn")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+          } },
+          { label: "3. Resolve 3 Red Conflicts", onClick: () => {
+            setTab("review"); markStep(2);
+            setTimeout(() => document.getElementById("conflict-gate")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+          } },
+          { label: "4. View <48h Urgency Radar", onClick: () => { setTab("digest"); setUrgentFocus(true); markStep(3); } },
+        ]} />
         {notice && (
           <div className={`flex items-start justify-between gap-4 rounded-lg border p-4 text-sm ${notice.kind === "ok" ? "border-success/50 bg-success/10 text-success" : "border-destructive/50 bg-destructive/10 text-destructive"}`}>
             <span className="font-medium">{notice.text}</span>
@@ -164,11 +184,11 @@ function App() {
           </div>
         )}
         {tab === "ingest" && (
-          <Ingest {...{ title, setTitle, date, setDate, transcript, setTranscript }} memory={decisions.length} busy={busy === "analyze"} onAnalyze={analyze} />
+          <Ingest {...{ title, setTitle, date, setDate, transcript, setTranscript }} memory={decisions.length} busy={busy === "analyze"} pulse={pulseAnalyze} onAnalyze={() => { setPulseAnalyze(false); void analyze(); }} />
         )}
         {tab === "review" && <Review meetingTitle={title} meetingDate={date} analysis={analysis} setAnalysis={setAnalysis} busy={busy === "confirm"} onConfirm={confirm} goIngest={() => setTab("ingest")} />}
         {tab === "vault" && <Vault decisions={decisions} meetings={meetings} sendHook={sendHook} />}
-        {tab === "digest" && <Digest items={items} decisions={decisions} sendHook={sendHook} setNotice={setNotice} onToggle={async (it) => {
+        {tab === "digest" && <Digest urgentFocus={urgentFocus} setUrgentFocus={setUrgentFocus} items={items} decisions={decisions} sendHook={sendHook} setNotice={setNotice} onToggle={async (it) => {
           await setTaskStatus({ data: { id: it.id, status: it.status === "open" ? "completed" : "open" } });
           await refresh();
         }} />}
@@ -199,7 +219,7 @@ function App() {
 
 function Ingest(p: {
   title: string; setTitle: (v: string) => void; date: string; setDate: (v: string) => void;
-  transcript: string; setTranscript: (v: string) => void; memory: number; busy: boolean; onAnalyze: () => void;
+  transcript: string; setTranscript: (v: string) => void; memory: number; busy: boolean; pulse?: boolean; onAnalyze: () => void;
 }) {
   const speakers = useMemo(() => parseSpeakers(p.transcript), [p.transcript]);
   return (
@@ -217,13 +237,11 @@ function Ingest(p: {
             <input type="file" accept=".txt,.vtt" className="hidden" onChange={async (e) => {
               const f = e.target.files?.[0]; if (f) p.setTranscript(await f.text());
             }} /></label>
-          <span className="ml-auto inline-flex items-center gap-2 rounded-full border border-destructive/40 bg-destructive/10 px-3 py-1 text-xs text-destructive">
-            <span className="pulse-urgent h-2 w-2 rounded-full bg-destructive" /> 🎙 Wispr Flow Voice Dictation Active
-          </span>
         </div>
+        <VoiceDictation append={(t) => p.setTranscript((prev: string) => prev + t)} />
         <textarea className="field min-h-[320px] w-full font-mono text-xs leading-relaxed" placeholder="Speaker (Role): what they said…"
           value={p.transcript} onChange={(e) => p.setTranscript(e.target.value)} />
-        <button className={`${btnPrimary} w-full py-3 text-base`} disabled={!p.transcript.trim() || p.busy} onClick={p.onAnalyze}>
+        <button id="analyze-btn" className={`${btnPrimary} w-full py-3 text-base ${p.pulse ? "pulse-cta" : ""}`} disabled={!p.transcript.trim() || p.busy} onClick={p.onAnalyze}>
           {p.busy ? "Analyzing against memory…" : "Analyze Transcript & Detect Conflicts"}
         </button>
       </section>
@@ -264,7 +282,7 @@ function Review({ analysis, setAnalysis, busy, onConfirm, goIngest, meetingDate,
   const upd = (fn: (n: Analysis) => void) => { const n = structuredClone(a); fn(n); setAnalysis(n); };
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div id="conflict-gate" className="flex scroll-mt-28 items-center justify-between">
         <h2 className="text-xl font-semibold">Human-in-the-Loop Review</h2>
         <span className="font-mono text-xs text-muted-foreground">source: {a.source === "ai" ? "AI analysis" : "deterministic parser"}</span>
       </div>
@@ -405,7 +423,8 @@ function Vault({ decisions, meetings, sendHook }: { decisions: Decision[]; meeti
   );
 }
 
-function Digest({ items, decisions, sendHook, setNotice, onToggle }: {
+function Digest({ items, decisions, sendHook, setNotice, onToggle, urgentFocus = false, setUrgentFocus }: {
+  urgentFocus?: boolean; setUrgentFocus?: (v: boolean) => void;
   items: ActionItem[]; decisions: Decision[]; sendHook: (p: Record<string, unknown>) => Promise<boolean>;
   setNotice: (n: { kind: "ok" | "err"; text: string }) => void; onToggle: (i: ActionItem) => Promise<void>;
 }) {
@@ -448,10 +467,14 @@ ${l(authored.map((d) => `${d.decision_text} (${d.speaker})`))}`);
         ))}
       </div>
       <section className="panel p-5">
-        <h3 className="mb-4 font-semibold">48-Hour Deadline Radar</h3>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-semibold">48-Hour Deadline Radar</h3>
+          <button className={`rounded-full border px-3 py-1 font-mono text-xs ${urgentFocus ? "border-destructive bg-destructive/15 text-destructive" : "border-border text-muted-foreground"}`}
+            onClick={() => setUrgentFocus?.(!urgentFocus)}>{urgentFocus ? "● Urgent only: Rahul & Priya" : "○ Show urgent only"}</button>
+        </div>
         <ul className="divide-y divide-border">
-          {mine.length === 0 && <li className="py-4 text-sm text-muted-foreground">No tasks yet.</li>}
-          {mine.map((it) => (
+          {(urgentFocus ? mine.filter((i) => isUrgent(i) && ["Rahul (Eng)", "Priya (PM)"].includes(i.owner)) : mine).length === 0 && <li className="py-4 text-sm text-muted-foreground">No tasks yet.</li>}
+          {(urgentFocus ? mine.filter((i) => isUrgent(i) && ["Rahul (Eng)", "Priya (PM)"].includes(i.owner)) : mine).map((it) => (
             <li key={it.id} className="flex flex-wrap items-center gap-3 py-3">
               <div className="min-w-0 flex-1">
                 <p className={it.status === "completed" ? "text-muted-foreground line-through" : ""}>{it.task}</p>
