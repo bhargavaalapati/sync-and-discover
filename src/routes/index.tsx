@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { JudgeDemoBar } from "@/components/judge-demo-bar";
 import { VoiceDictation } from "@/components/voice-dictation";
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { loadAll, saveMeeting, seedDemo, setTaskStatus } from "@/lib/syncexec.db.functions";
 import {
   DEFAULT_WEBHOOK, DEMO_TRANSCRIPT, SEED, TODAY, deterministicAnalyze, isUrgent, parseSpeakers,
@@ -219,7 +219,7 @@ function App() {
 
 function Ingest(p: {
   title: string; setTitle: (v: string) => void; date: string; setDate: (v: string) => void;
-  transcript: string; setTranscript: (v: string) => void; memory: number; busy: boolean; pulse?: boolean; onAnalyze: () => void;
+  transcript: string; setTranscript: React.Dispatch<React.SetStateAction<string>>; memory: number; busy: boolean; pulse?: boolean; onAnalyze: () => void;
 }) {
   const speakers = useMemo(() => parseSpeakers(p.transcript), [p.transcript]);
   return (
