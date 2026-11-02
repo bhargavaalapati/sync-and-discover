@@ -120,3 +120,7 @@
 @utility pulse-urgent { animation: pulse-ring 1.6s ease-in-out infinite; }
 @utility panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); }
 @utility field { background: var(--input); border: 1px solid var(--border); border-radius: calc(var(--radius) - 4px); padding: 0.45rem 0.7rem; color: var(--foreground); font-size: 0.875rem; outline: none; &:focus { border-color: var(--ring); } }
+@keyframes wave { 0%,100% { height: 4px; } 50% { height: 22px; } }
+@utility wave-bar { animation: wave 0.7s ease-in-out infinite; }
+@keyframes pulse-cta { 0%,100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 70%, transparent); } 50% { box-shadow: 0 0 0 8px transparent; } }
+@utility pulse-cta { animation: pulse-cta 1.2s ease-in-out infinite; }
