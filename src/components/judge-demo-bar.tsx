@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp, Check } from "lucide-react";
 
-export type JudgeStep = { label: string; badge?: string; onClick: () => void | Promise<void> };
+export type JudgeStep = { label: string; badge?: string | undefined; onClick: () => void | Promise<void> };
 
 export function JudgeDemoBar({ steps, done, active }: { steps: JudgeStep[]; done: number[]; active: number | null }) {
   const [open, setOpen] = useState(true);
