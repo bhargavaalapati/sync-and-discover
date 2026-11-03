@@ -19,8 +19,8 @@ export function JudgeDemoBar({ steps, done, active, onReset, resetting }: { step
             const isActive = active === i;
             return (
               <li key={s.label}>
-                <Button disabled={resetting} onClick={s.onClick}
-                  className={`flex h-full w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors ${isActive ? "border-primary bg-primary/15 text-foreground" : isDone ? "border-success/50 bg-success/10 text-success" : "border-border bg-secondary hover:border-primary/60"}`}>
+                <Button variant="ghost" disabled={resetting} onClick={s.onClick}
+                  className={`flex h-full min-h-11 w-full items-center gap-2 whitespace-normal rounded-md border px-3 py-2 text-left text-sm transition-colors ${isActive ? "border-primary bg-primary/15 text-foreground" : isDone ? "border-success/50 bg-success/10 text-success" : "border-border bg-secondary text-secondary-foreground hover:border-primary/60"}`}>
                   <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full font-mono text-xs ${isDone ? "bg-success text-success-foreground" : isActive ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
                     {isDone ? <Check className="h-3.5 w-3.5" /> : i + 1}
                   </span>

@@ -217,7 +217,7 @@ function App() {
       <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
         <JudgeDemoBar done={demoDone} active={demoActive} onReset={() => void resetDemo()} resetting={busy === "seed"} steps={[
           { label: "1. Seed Oct 10 & 20 Memory", badge: decisions.length ? `${decisions.length} Decisions Active` : undefined,
-            onClick: async () => { setDemoActive(0); await seed(); markStep(0); } },
+            onClick: async () => { setDemoActive(0); if (await seed()) markStep(0); } },
           { label: "2. Load & Analyze Oct 31 Sync", onClick: () => {
             setTab("ingest"); setTranscript(DEMO_TRANSCRIPT); setPulseAnalyze(true); markStep(1);
             setTimeout(() => document.getElementById("analyze-btn")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
@@ -381,7 +381,7 @@ function Review({ analysis, setAnalysis, busy, onConfirm, goIngest, meetingDate,
             <div className="mt-3 space-y-2 break-words font-mono text-xs leading-relaxed text-muted-foreground">
               <p><span className="text-foreground">Memory Vector Match:</span> Matched governing decision from {c.past_meeting_date} by {c.past_speaker}: “{c.contradicted_decision}”.</p>
               <p><span className="text-foreground">Agent Critique:</span> Proposed value “{c.new_value}” conflicts with “{c.past_value}”. Executing it unverified could create rework in {c.impacted_task_preview}.</p>
-              <p><span className="text-foreground">Auto-Remediation Action:</span> Override saves the new decision and linked task, then sends them to Slack. Keep Past Decision preserves memory, blocks linked work, and excludes it from the database write and Slack payload.</p>
+              <p><span className="text-foreground">Auto-Remediation Action:</span> Override approves the proposal for the next confirmation. After confirmation, approved decisions and tasks are saved and sent to Slack. Keep Past Decision preserves memory, blocks linked work, and excludes it from both writes. Sandbox previews only; no writes or Slack calls.</p>
             </div>
           </details>
           {c.resolution === "rejected" && <div className="mt-3 flex items-start gap-2 rounded-md border border-success/40 bg-success/10 p-3 text-sm font-medium text-success"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /><span>Backlog Protected: Unapproved scope blocked from Slack/Tracker</span></div>}
