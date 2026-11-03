@@ -211,7 +211,7 @@ function App() {
             </button>
           ))}
         </nav>
-        <div className="mx-auto max-w-7xl px-6"><AgentTelemetry {...telemetry} mode={mode} disabled={pipelineOpen || busy === "confirm"} setMode={(m) => { setMode(m); if (analysis) setAnalysis(prepareReview(analysis, m)); }} /></div>
+        <div className="mx-auto max-w-7xl px-6"><AgentTelemetry {...telemetry} mode={mode} disabled={pipelineOpen || busy === "confirm" || busy === "webhook"} setMode={(m) => { setMode(m); if (analysis) setAnalysis(prepareReview(analysis, m)); }} /></div>
       </header>
 
       <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
