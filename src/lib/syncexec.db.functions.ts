@@ -1,6 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { SEED } from "@/lib/syncexec";
 
 // All database access goes through these server functions; the tables have no
 // public access rules, so the browser cannot read or write them directly.
@@ -23,13 +22,8 @@ export const loadAll = createServerFn({ method: "GET" }).handler(async () => {
 
 export const seedDemo = createServerFn({ method: "POST" }).handler(async () => {
   const db = await admin();
-  await db.from("meetings").delete().in("title", SEED.map((s) => s.title));
-  for (const s of SEED) {
-    const { data: m } = await db.from("meetings").insert({ title: s.title, date: s.date, raw_transcript: "" }).select().single();
-    if (!m) continue;
-    await db.from("decisions").insert(s.decisions.map((d) => ({ ...d, meeting_id: m.id, created_at: `${s.date}T10:00:00Z` })));
-    await db.from("action_items").insert(s.tasks.map((t) => ({ ...t, meeting_id: m.id, synced_to_tracker: true })));
-  }
+  const { error } = await db.rpc("reset_syncexec_demo");
+  if (error) throw new Error("Demo reset failed. Existing data was not changed.");
   return { ok: true };
 });
 

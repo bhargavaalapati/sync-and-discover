@@ -61,6 +61,7 @@
   --color-sidebar-ring: var(--sidebar-ring);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
+  --color-agent: var(--agent);
   --font-sans: var(--font-display);
   --font-mono: var(--font-mono-ui);
 }
@@ -85,6 +86,7 @@
   --destructive-foreground: oklch(0.98 0.01 25);
   --success: oklch(0.74 0.17 150);
   --success-foreground: oklch(0.16 0.03 150);
+  --agent: oklch(0.75 0.14 305);
   --border: oklch(0.3 0.016 250);
   --input: oklch(0.28 0.016 250);
   --ring: oklch(0.82 0.16 85);
@@ -124,3 +126,8 @@
 @utility wave-bar { animation: wave 0.7s ease-in-out infinite; }
 @keyframes pulse-cta { 0%,100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 70%, transparent); } 50% { box-shadow: 0 0 0 8px transparent; } }
 @utility pulse-cta { animation: pulse-cta 1.2s ease-in-out infinite; }
+@keyframes thinking { 0%,100% { opacity: 0.25; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-2px); } }
+.thinking-dots span { animation: thinking 0.9s ease-in-out infinite; }
+.thinking-dots span:nth-child(2) { animation-delay: 0.15s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.3s; }
+@media (prefers-reduced-motion: reduce) { .thinking-dots span, .wave-bar, .pulse-cta, .pulse-urgent { animation: none; } }

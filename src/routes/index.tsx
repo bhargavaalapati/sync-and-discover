@@ -6,8 +6,11 @@ import { confirmationPayload, reminderSummary, governingBrief, tasksMarkdown } f
 import { toast } from "sonner";
 import { JudgeDemoBar } from "@/components/judge-demo-bar";
 import { VoiceDictation } from "@/components/voice-dictation";
+import { AgentTelemetry } from "@/components/agent-telemetry";
+import { AgentPipeline } from "@/components/agent-pipeline";
+import { executionItems, executionPolicy, exportReview, prepareReview, uniqueBy, type AutonomyMode } from "@/lib/syncexec.agents";
 import { createFileRoute } from "@tanstack/react-router";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadAll, saveMeeting, seedDemo, setTaskStatus } from "@/lib/syncexec.db.functions";
 import {
   DEFAULT_WEBHOOK, DEMO_TRANSCRIPT, SEED, TODAY, deterministicAnalyze, isUrgent, parseSpeakers,
@@ -56,7 +59,16 @@ function App() {
   const [demoActive, setDemoActive] = useState<number | null>(null);
   const [pulseAnalyze, setPulseAnalyze] = useState(false);
   const [urgentFocus, setUrgentFocus] = useState(false);
+  const [mode, setMode] = useState<AutonomyMode>("strict");
+  const [voiceActive, setVoiceActive] = useState(false);
+  const [pipelineOpen, setPipelineOpen] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [pendingAnalysis, setPendingAnalysis] = useState<Analysis | null>(null);
+  const [skipRequested, setSkipRequested] = useState(false);
+  const [sandboxPayload, setSandboxPayload] = useState<Record<string, unknown> | null>(null);
+  const runRef = useRef(0);
   const markStep = (i: number) => { setDemoActive(i); setDemoDone((d) => (d.includes(i) ? d : [...d, i])); };
+  const onVoiceActive = useCallback((active: boolean) => setVoiceActive(active), []);
 
   const [title, setTitle] = useState("Emergency Pre-Launch Sync");
   const [date, setDate] = useState(TODAY);
@@ -72,28 +84,46 @@ function App() {
 
   async function refresh() {
     const r = await loadAll();
-    setDecisions(r.decisions as Decision[]);
-    setItems(r.items as ActionItem[]);
+    setDecisions(uniqueBy(r.decisions as Decision[], (d) => d.decision_text.trim().toLowerCase()));
+    setItems(uniqueBy(r.items as ActionItem[], (t) => t.task.trim().toLowerCase()));
     setMeetings(r.meetings);
   }
 
   async function sendHook(payload: Record<string, unknown>) {
+    if (mode === "sandbox") { setSandboxPayload(payload); return false; }
     if (!webhook.startsWith("https://")) { setNotice({ kind: "err", text: "Add a valid https webhook URL first." }); return false; }
-    const r = await postWebhook({ data: { url: webhook, payload } });
-    if (!r.ok) setNotice({ kind: "err", text: `Webhook failed (${r.status}): ${r.body}` });
-    return r.ok;
+    setBusy("webhook");
+    try {
+      const r = await postWebhook({ data: { url: webhook, payload } });
+      if (!r.ok) setNotice({ kind: "err", text: `Webhook failed (${r.status}): ${r.body}` });
+      return r.ok;
+    } finally { setBusy((b) => (b === "webhook" ? "" : b)); }
   }
 
   async function seed() {
     setBusy("seed");
-    await seedDemo();
-    await refresh();
-    setBusy("");
-    setNotice({ kind: "ok", text: "Oct 10 & Oct 20 memory seeded: 4 decisions, 4 tasks." });
+    try {
+      await seedDemo();
+      setDecisions([]); setItems([]); setMeetings([]); setAnalysis(null); setPendingAnalysis(null);
+      await refresh();
+      setNotice({ kind: "ok", text: "Clean demo restored: 2 meetings, 4 decisions, 4 tasks." });
+      return true;
+    } catch {
+      setNotice({ kind: "err", text: "Demo reset failed. Your existing data was not changed." });
+      return false;
+    } finally { setBusy(""); }
+  }
+
+  async function resetDemo() {
+    runRef.current++;
+    setPipelineOpen(false); setTranscript(""); setDemoDone([]); setDemoActive(null); setUrgentFocus(false); setPulseAnalyze(false);
+    if (await seed()) toast.success("Clean demo state restored");
   }
 
   async function analyze() {
+    const run = ++runRef.current;
     setBusy("analyze");
+    setPendingAnalysis(null); setSkipRequested(false); setElapsed(0); setPipelineOpen(true);
     const history = decisions;
     let result: Analysis | null = null;
     try {
@@ -111,26 +141,46 @@ function App() {
       const det = deterministicAnalyze(transcript, history);
       result = result && det.conflicts.length === 0 ? result : det;
     }
-    setAnalysis(result);
-    setBusy("");
-    setTab("review");
+    if (run === runRef.current) setPendingAnalysis(prepareReview(result, mode));
   }
+
+  useEffect(() => {
+    if (!pipelineOpen) return;
+    const started = Date.now() - elapsed;
+    const id = window.setInterval(() => setElapsed(Math.min(3200, Date.now() - started)), 50);
+    return () => window.clearInterval(id);
+  }, [pipelineOpen]);
+  useEffect(() => {
+    if (!pipelineOpen || !pendingAnalysis || (!skipRequested && elapsed < 3200)) return;
+    setAnalysis(pendingAnalysis); setPendingAnalysis(null); setPipelineOpen(false); setBusy(""); setTab("review");
+  }, [pipelineOpen, pendingAnalysis, skipRequested, elapsed]);
 
   async function confirm() {
     if (!analysis) return;
+    const policy = executionPolicy(mode, true);
+    const gated = exportReview(analysis, mode);
+    const payload = confirmationPayload(gated, title, date);
+    if (!policy.save) { setSandboxPayload(payload); return; }
     setBusy("confirm");
     const rejected = analysis.conflicts.filter((c) => c.resolution === "rejected").length;
-    const payload = confirmationPayload(analysis, title, date);
     const approvedDecisions = payload.approved_decisions;
     const approvedTasks = payload.approved_tasks;
     const saved = await saveMeeting({ data: { title, date, transcript, decisions: approvedDecisions, tasks: approvedTasks.map(({ task, owner, deadline }) => ({ task, owner, deadline })) } });
     if (!saved.ok) { setBusy(""); setNotice({ kind: "err", text: saved.error }); return; }
-    const hookOk = await sendHook(payload);
+    setBusy("webhook");
+    const hookOk = policy.webhook && await sendHook(payload);
     await refresh();
     setAnalysis(null);
     setBusy("");
     setNotice({ kind: "ok", text: `Executed: ${approvedDecisions.length} decisions saved, ${approvedTasks.length} tasks synced, ${rejected} conflicts rejected.${hookOk ? " Webhook delivered." : " Webhook not delivered — check that your Make.com scenario is switched on."}` });
   }
+
+  const pending = analysis?.conflicts.filter((c) => !c.resolution).length ?? 0;
+  const telemetry = busy === "webhook" || busy === "confirm" ? { tone: "executing" as const, state: "⚡ Executing Make.com Webhook..." }
+    : voiceActive ? { tone: "listening" as const, state: "🎙️ Listening via Wispr Flow..." }
+    : pipelineOpen || busy === "analyze" ? { tone: "reasoning" as const, state: "🟣 Multi-Agent Reasoning..." }
+    : tab === "review" && analysis ? { tone: "gate" as const, state: `🟠 Halted at Human Gate (${pending} Conflicts Pending)` }
+    : { tone: "idle" as const, state: `🟢 Agent Idle • Memory Synced (${decisions.length} Decisions)` };
 
   return (
     <div className="min-h-screen bg-background font-sans text-foreground">
@@ -161,12 +211,13 @@ function App() {
             </button>
           ))}
         </nav>
+        <div className="mx-auto max-w-7xl px-6"><AgentTelemetry {...telemetry} mode={mode} disabled={pipelineOpen || busy === "confirm" || busy === "webhook"} setMode={(m) => { setMode(m); if (analysis) setAnalysis(prepareReview(analysis, m)); }} /></div>
       </header>
 
       <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
-        <JudgeDemoBar done={demoDone} active={demoActive} steps={[
+        <JudgeDemoBar done={demoDone} active={demoActive} onReset={() => void resetDemo()} resetting={busy === "seed"} steps={[
           { label: "1. Seed Oct 10 & 20 Memory", badge: decisions.length ? `${decisions.length} Decisions Active` : undefined,
-            onClick: async () => { setDemoActive(0); await seed(); markStep(0); } },
+            onClick: async () => { setDemoActive(0); if (await seed()) markStep(0); } },
           { label: "2. Load & Analyze Oct 31 Sync", onClick: () => {
             setTab("ingest"); setTranscript(DEMO_TRANSCRIPT); setPulseAnalyze(true); markStep(1);
             setTimeout(() => document.getElementById("analyze-btn")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
@@ -184,15 +235,23 @@ function App() {
           </div>
         )}
         {tab === "ingest" && (
-          <Ingest {...{ title, setTitle, date, setDate, transcript, setTranscript }} memory={decisions.length} busy={busy === "analyze"} pulse={pulseAnalyze} onAnalyze={() => { setPulseAnalyze(false); void analyze(); }} />
+          <Ingest {...{ title, setTitle, date, setDate, transcript, setTranscript }} onVoiceActive={onVoiceActive} memory={decisions.length} busy={busy === "analyze"} pulse={pulseAnalyze} onAnalyze={() => { setPulseAnalyze(false); void analyze(); }} />
         )}
-        {tab === "review" && <Review meetingTitle={title} meetingDate={date} analysis={analysis} setAnalysis={setAnalysis} busy={busy === "confirm"} onConfirm={confirm} goIngest={() => setTab("ingest")} />}
+        {tab === "review" && <Review mode={mode} meetingTitle={title} meetingDate={date} analysis={analysis} setAnalysis={setAnalysis} busy={busy === "confirm" || busy === "webhook"} onConfirm={confirm} goIngest={() => setTab("ingest")} />}
         {tab === "vault" && <Vault decisions={decisions} meetings={meetings} sendHook={sendHook} />}
         {tab === "digest" && <Digest urgentFocus={urgentFocus} setUrgentFocus={setUrgentFocus} items={items} decisions={decisions} sendHook={sendHook} setNotice={setNotice} onToggle={async (it) => {
           await setTaskStatus({ data: { id: it.id, status: it.status === "open" ? "completed" : "open" } });
           await refresh();
         }} />}
       </main>
+      <AgentPipeline open={pipelineOpen} elapsed={elapsed} transcript={transcript} memory={decisions.length} result={pendingAnalysis} skip={() => setSkipRequested(true)} />
+      <Dialog open={sandboxPayload !== null} onOpenChange={(open) => { if (!open) setSandboxPayload(null); }}>
+        <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] max-w-3xl overflow-y-auto">
+          <DialogHeader><DialogTitle>🧪 Safe Sandbox Payload Preview</DialogTitle><DialogDescription>No Make.com call was sent and nothing was saved.</DialogDescription></DialogHeader>
+          <pre className="max-h-[55dvh] overflow-auto rounded-md border border-border bg-muted p-4 font-mono text-xs">{JSON.stringify(sandboxPayload, null, 2)}</pre>
+          <Button variant="outline" onClick={() => void copyText(JSON.stringify(sandboxPayload, null, 2), "Sandbox JSON copied")}><Copy className="h-4 w-4" />Copy JSON</Button>
+        </DialogContent>
+      </Dialog>
 
       {settingsOpen && (
         <div className="fixed inset-0 z-30 grid place-items-center bg-background/80 p-4" onClick={() => setSettingsOpen(false)}>
@@ -220,6 +279,7 @@ function App() {
 function Ingest(p: {
   title: string; setTitle: (v: string) => void; date: string; setDate: (v: string) => void;
   transcript: string; setTranscript: React.Dispatch<React.SetStateAction<string>>; memory: number; busy: boolean; pulse?: boolean; onAnalyze: () => void;
+  onVoiceActive: (active: boolean) => void;
 }) {
   const speakers = useMemo(() => parseSpeakers(p.transcript), [p.transcript]);
   return (
@@ -238,7 +298,7 @@ function Ingest(p: {
               const f = e.target.files?.[0]; if (f) p.setTranscript(await f.text());
             }} /></label>
         </div>
-        <VoiceDictation append={(t) => p.setTranscript((prev: string) => prev + t)} />
+        <VoiceDictation onActiveChange={p.onVoiceActive} append={(t) => p.setTranscript((prev: string) => prev + t)} />
         <textarea className="field min-h-[320px] w-full font-mono text-xs leading-relaxed" placeholder="Speaker (Role): what they said…"
           value={p.transcript} onChange={(e) => p.setTranscript(e.target.value)} />
         <button id="analyze-btn" className={`${btnPrimary} w-full py-3 text-base ${p.pulse ? "pulse-cta" : ""}`} disabled={!p.transcript.trim() || p.busy} onClick={p.onAnalyze}>
@@ -266,7 +326,8 @@ function Ingest(p: {
   );
 }
 
-function Review({ analysis, setAnalysis, busy, onConfirm, goIngest, meetingDate, meetingTitle }: {
+function Review({ analysis, setAnalysis, busy, onConfirm, goIngest, meetingDate, meetingTitle, mode }: {
+  mode: AutonomyMode;
   meetingDate: string; meetingTitle: string;
   analysis: Analysis | null; setAnalysis: (a: Analysis) => void; busy: boolean; onConfirm: () => void; goIngest: () => void;
 }) {
@@ -278,7 +339,8 @@ function Review({ analysis, setAnalysis, busy, onConfirm, goIngest, meetingDate,
   );
   const a = analysis;
   const resolve = (i: number, resolution: "accepted" | "rejected") => setAnalysis(resolveConflict(a, i, resolution));
-  const approved = approvedItems(a);
+  const approved = executionItems(a, mode);
+  const exported = exportReview(a, mode);
   const upd = (fn: (n: Analysis) => void) => { const n = structuredClone(a); fn(n); setAnalysis(n); };
   return (
     <div className="space-y-6">
@@ -314,6 +376,14 @@ function Review({ analysis, setAnalysis, busy, onConfirm, goIngest, meetingDate,
             {c.related_task_index !== null && <p className="mt-1 text-xs text-muted-foreground">{c.resolution === "rejected" ? "Blocked from execution" : "Blocked if this change is rejected"}</p>}
           </div>
           <p className="mt-3 text-sm text-muted-foreground">{c.reason}</p>
+          <details className="mt-3 rounded-md border border-agent/40 bg-background p-3">
+            <summary className="cursor-pointer text-sm font-medium text-agent">🧠 View Agent Reasoning Trace</summary>
+            <div className="mt-3 space-y-2 break-words font-mono text-xs leading-relaxed text-muted-foreground">
+              <p><span className="text-foreground">Memory Vector Match:</span> Matched governing decision from {c.past_meeting_date} by {c.past_speaker}: “{c.contradicted_decision}”.</p>
+              <p><span className="text-foreground">Agent Critique:</span> Proposed value “{c.new_value}” conflicts with “{c.past_value}”. Executing it unverified could create rework in {c.impacted_task_preview}.</p>
+              <p><span className="text-foreground">Auto-Remediation Action:</span> Override approves the proposal for the next confirmation. After confirmation, approved decisions and tasks are saved and sent to Slack. Keep Past Decision preserves memory, blocks linked work, and excludes it from both writes. Sandbox previews only; no writes or Slack calls.</p>
+            </div>
+          </details>
           {c.resolution === "rejected" && <div className="mt-3 flex items-start gap-2 rounded-md border border-success/40 bg-success/10 p-3 text-sm font-medium text-success"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /><span>Backlog Protected: Unapproved scope blocked from Slack/Tracker</span></div>}
           <div className="mt-4 flex flex-wrap gap-2">
             <Button className="h-auto whitespace-normal" onClick={() => resolve(i, "accepted")}>Override Past Decision (Accept Change)</Button>
@@ -344,9 +414,9 @@ function Review({ analysis, setAnalysis, busy, onConfirm, goIngest, meetingDate,
       </section>
       <div className="flex flex-wrap items-center gap-2">
       <Button className="h-auto min-w-0 flex-1 whitespace-normal py-3 text-base" disabled={busy} onClick={onConfirm}>
-        {busy ? "Executing…" : `Confirm & Execute Approved Items (${approved.decisions.length} decisions · ${approved.tasks.length} tasks)`}
+        {busy ? "Executing…" : mode === "sandbox" ? `Preview Sandbox Payload (${approved.decisions.length} decisions · ${approved.tasks.length} tasks)` : `Confirm & Execute Approved Items (${approved.decisions.length} decisions · ${approved.tasks.length} tasks)`}
       </Button>
-      <ExportActions markdown={tasksMarkdown(approved.tasks)} payload={confirmationPayload(a, meetingTitle, meetingDate)} filename={`syncexec-review-${meetingDate}.json`} />
+      <ExportActions markdown={tasksMarkdown(approved.tasks)} payload={confirmationPayload(exported, meetingTitle, meetingDate)} filename={`syncexec-review-${meetingDate}.json`} />
       </div>
     </div>
   );
