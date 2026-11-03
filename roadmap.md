@@ -1,5 +1,5 @@
-# Webhook summaries and pre-read exports
-- [x] Add rich confirmation/reminder summaries without changing webhook URL handling or existing fields.
-- [x] Add categorized governing-decision pre-read with clipboard and Slack actions in Tab 3.
-- [x] Add Markdown copy and JSON export in Tabs 2 and 4, preserving rejected-item protection.
-- [x] Run focused tests and verify the live flows.
+# Judge demo and agent orchestration
+- [ ] Implement clean reset to exactly 2 meetings, 4 decisions and 4 tasks; deduplicate displayed data.
+- [ ] Add timed orchestration pipeline with skip and truthful progress details.
+- [ ] Add shared agent telemetry, autonomy modes, safe sandbox preview and conflict explainability.
+- [ ] Run rule tests and verify reset, voice, analysis, review and sandbox flows.
