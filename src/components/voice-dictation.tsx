@@ -21,7 +21,7 @@ function Waveform({ active }: { active: boolean }) {
   );
 }
 
-export function VoiceDictation({ append }: { append: (text: string) => void }) {
+export function VoiceDictation({ append, onActiveChange }: { append: (text: string) => void; onActiveChange?: (active: boolean) => void }) {
   const [listening, setListening] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const recRef = useRef<Recognition | null>(null);
@@ -60,6 +60,7 @@ export function VoiceDictation({ append }: { append: (text: string) => void }) {
   }
 
   const active = listening || streaming;
+  useEffect(() => { onActiveChange?.(active); return () => onActiveChange?.(false); }, [active, onActiveChange]);
   return (
     <div className={`flex flex-wrap items-center gap-3 rounded-md border px-3 py-2 ${active ? "border-success/60 bg-success/10" : "border-border bg-secondary"}`}>
       <span className="text-xs font-medium">🎙 Wispr Flow Voice Dictation</span>

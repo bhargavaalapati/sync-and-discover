@@ -11,3 +11,6 @@
 
 - Keep conflict schemas and approval/rejection helpers browser-safe and shared by AI validation, deterministic analysis, and review; one contract prevents drift and blocks rejected items from execution.
 - Keep webhook summary, governing-brief selection, and export formatting in browser-safe shared helpers; review exports and execution use the same approved-item filtering to prevent rejected work from leaking downstream.
+- Execute demo reset through a service-role-only transactional database function; locking and literal historical rows prevent partial or concurrent duplicate seeds.
+- Centralize autonomy filtering in browser-safe agent helpers and route every webhook through the shared sandbox-aware sender; confirmation and exports must use identical permitted items.
+- Keep pipeline timing as an orchestration visualization and derive displayed counts from actual input/results; never present canned trace text as private model reasoning.

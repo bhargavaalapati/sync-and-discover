@@ -1,16 +1,17 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp, Check } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export type JudgeStep = { label: string; badge?: string | undefined; onClick: () => void | Promise<void> };
 
-export function JudgeDemoBar({ steps, done, active }: { steps: JudgeStep[]; done: number[]; active: number | null }) {
+export function JudgeDemoBar({ steps, done, active, onReset, resetting }: { steps: JudgeStep[]; done: number[]; active: number | null; onReset: () => void; resetting: boolean }) {
   const [open, setOpen] = useState(true);
   return (
     <section aria-label="Interactive Judge Evaluation Flow" className="panel overflow-hidden">
-      <button className="flex w-full items-center justify-between px-4 py-2.5 text-left text-sm font-semibold" onClick={() => setOpen(!open)} aria-expanded={open}>
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2"><Button variant="ghost" className="h-auto min-w-0 flex-1 justify-between whitespace-normal text-left text-sm font-semibold" onClick={() => setOpen(!open)} aria-expanded={open}>
         <span>🎯 Interactive Judge Evaluation Flow <span className="ml-2 font-mono text-xs font-normal text-muted-foreground">30-sec guided demo · {done.length}/{steps.length}</span></span>
         {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-      </button>
+      </Button><Button variant="ghost" size="sm" title="Reset Clean Demo State" aria-label="Reset Clean Demo State" disabled={resetting} onClick={onReset}>🧹<span className="text-xs">Reset Clean Demo State</span></Button></div>
       {open && (
         <ol className="grid gap-2 border-t border-border p-3 sm:grid-cols-2 lg:grid-cols-4">
           {steps.map((s, i) => {
@@ -18,14 +19,14 @@ export function JudgeDemoBar({ steps, done, active }: { steps: JudgeStep[]; done
             const isActive = active === i;
             return (
               <li key={s.label}>
-                <button onClick={s.onClick}
+                <Button disabled={resetting} onClick={s.onClick}
                   className={`flex h-full w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors ${isActive ? "border-primary bg-primary/15 text-foreground" : isDone ? "border-success/50 bg-success/10 text-success" : "border-border bg-secondary hover:border-primary/60"}`}>
                   <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full font-mono text-xs ${isDone ? "bg-success text-success-foreground" : isActive ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
                     {isDone ? <Check className="h-3.5 w-3.5" /> : i + 1}
                   </span>
                   <span className="min-w-0 flex-1">{s.label}</span>
                   {s.badge && <span className="shrink-0 rounded-full border border-success/50 bg-success/10 px-2 py-0.5 font-mono text-[10px] text-success">{s.badge}</span>}
-                </button>
+                </Button>
               </li>
             );
           })}
