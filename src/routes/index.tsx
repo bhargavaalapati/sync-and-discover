@@ -445,6 +445,7 @@ function Vault({ decisions, meetings, sendHook, defenses, selectedSource, jumpSo
   const [briefOpen, setBriefOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [timeline, setTimeline] = useState(false);
+  useEffect(() => { if (selectedSource?.kind === "decision") { setQ(""); setSpeaker("All"); } }, [selectedSource]);
   const brief = useMemo(() => governingBrief(decisions, meetings), [decisions, meetings]);
   const list = decisions.filter((d) => (speaker === "All" || d.speaker === speaker) && d.decision_text.toLowerCase().includes(q.toLowerCase())).reverse();
   return (
@@ -506,6 +507,7 @@ function Digest({ items, decisions, sendHook, setNotice, onToggle, urgentFocus =
 }) {
   const [person, setPerson] = useState("All Team");
   const [digest, setDigest] = useState("");
+  useEffect(() => { if (selectedSource?.kind === "task") setPerson("All Team"); }, [selectedSource]);
   const mine = items.filter((i) => person === "All Team" || i.owner === person);
   const open = mine.filter((i) => i.status === "open");
   const urgent = open.filter(isUrgent);

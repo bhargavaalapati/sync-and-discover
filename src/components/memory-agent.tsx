@@ -29,7 +29,7 @@ export function MemoryAgent({ decisions, items, meetings, defenses, onSource }: 
     setText(grounded.text); setSources(grounded.sources);
     try {
       const response = await fetch('/api/memory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: value, evidence: grounded.text }), signal: controller.signal });
-      if (!response.ok || !response.body) { setStatus('AI unavailable · grounded memory result'); return; }
+      if (!response.ok || !response.body) { const problem = await response.json().catch(() => null); setStatus(typeof problem?.error === 'string' ? problem.error : 'AI unavailable · grounded memory result'); return; }
       const reader = response.body.getReader(); const decoder = new TextDecoder(); let streamed = '';
       while (true) {
         const chunk = await reader.read(); if (chunk.done) break;

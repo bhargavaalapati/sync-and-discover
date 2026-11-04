@@ -9,8 +9,9 @@ export function DecisionLineage({ decisions, allDecisions, meetings, defenses, t
     <div className="mb-2 flex flex-wrap items-center gap-2 text-xs"><span className="font-medium">{l.decision.speaker}</span><time className="font-mono text-muted-foreground">{l.date}</time>
       <span className={`max-w-full rounded border px-2 py-1 font-mono text-[10px] ${l.status === 'superseded' ? 'border-primary/40 text-primary' : 'border-success/40 text-success'}`}>{l.successor ? `🔄 SUPERSEDED BY ${shortDate(recordDate(l.successor, meetings)).toUpperCase()}` : l.defense ? '🛡️ PROTECTED AGAINST DRIFT' : '🟢 GOVERNING (LOCKED)'}</span>
     </div>
+    <p className="mb-2 text-xs text-muted-foreground">{meetings.find(m => m.id === l.decision.meeting_id)?.title}</p>
     <p className={`break-words text-sm ${l.successor ? 'text-muted-foreground' : ''}`}>{plainDecision(l.decision.decision_text)}</p>
-    {l.defense && <p className="mt-3 break-words text-xs text-success">Defended on {shortDate(l.defense.date)} (Blocked unapproved MongoDB switch)<span className="mt-1 block text-muted-foreground">{l.defense.proposal}</span></p>}
+    {l.defense && <p className="mt-3 break-words text-xs text-success">Defended on {shortDate(l.defense.date)} ({/mongo/i.test(l.defense.proposal) ? 'Blocked unapproved MongoDB switch' : 'Blocked unapproved change'})<span className="mt-1 block text-muted-foreground">{l.defense.proposal}</span></p>}
     {l.successor && <div className="mt-3 border-l-2 border-primary pl-3 text-xs"><p className="break-words text-muted-foreground">[{shortDate(l.date)}: {plainDecision(l.decision.decision_text)}] →</p><Button variant="link" className="h-auto max-w-full justify-start whitespace-normal px-0 text-left text-xs" onClick={() => { if (l.successor) onJump(l.successor.id); }}>[{shortDate(recordDate(l.successor, meetings))} Override: {plainDecision(l.successor.decision_text)}]</Button></div>}
   </li>;
   if (!timeline) return <ol className="space-y-3">{[...rows].reverse().map(card)}</ol>;

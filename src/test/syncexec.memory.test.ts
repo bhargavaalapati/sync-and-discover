@@ -24,6 +24,12 @@ describe('grounded meeting memory', () => {
     expect(memoryAnswer('Why was MongoDB blocked?', decisions, [], meetings, []).text).toContain('No confirmed rejection');
     expect(memoryAnswer('Why was MongoDB blocked?', decisions, [], meetings, defenses).text).toContain('Defended on Oct 31');
   });
+  it('supersedes the $5,000 cap only with a saved $8,000 budget', () => {
+    const override: Decision = { id: 'budget', meeting_id: null, created_at: '2026-10-31T12:00:00Z', speaker: 'Priya (PM)', decision_text: '[2026-10-31] Increase Q4 beta marketing budget to $8,000.' };
+    const rows = decisionLineage([...decisions, override], meetings, []);
+    expect(rows.find(r => r.decision.id === 'd10')?.successor?.id).toBe('budget');
+    expect(rows.find(r => r.decision.id === 'd11')?.status).toBe('governing');
+  });
   it('groups actual Nov 1/2 open urgent tasks by owner and cites meeting not deadline', () => {
     const tasks = SEED.flatMap((m,i) => m.tasks.map((t,j) => ({ ...t, id: `t${i}${j}`, meeting_id: `m${i}`, synced_to_tracker: false })));
     const result = memoryAnswer('urgent tasks within 48h', decisions, tasks, meetings, []);
