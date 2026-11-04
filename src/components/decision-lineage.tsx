@@ -2,7 +2,7 @@ import { Button } from './ui/button';
 import { decisionLineage, domains, plainDecision, recordDate, type Defense, type MeetingRecord } from '@/lib/syncexec.memory';
 import { shortDate, type Decision } from '@/lib/syncexec';
 
-export function DecisionLineage({ decisions, allDecisions, meetings, defenses, timeline, selected, onJump }: { decisions: Decision[]; allDecisions: Decision[]; meetings: MeetingRecord[]; defenses: Defense[]; timeline: boolean; selected?: string; onJump: (id: string) => void }) {
+export function DecisionLineage({ decisions, allDecisions, meetings, defenses, timeline, selected, onJump }: { decisions: Decision[]; allDecisions: Decision[]; meetings: MeetingRecord[]; defenses: Defense[]; timeline: boolean; selected?: string | undefined; onJump: (id: string) => void }) {
   const visible = new Set(decisions.map(d => d.id));
   const rows = decisionLineage(allDecisions, meetings, defenses).filter(l => visible.has(l.decision.id));
   const card = (l: typeof rows[number]) => <li id={`decision-${l.decision.id}`} key={l.decision.id} className={`min-w-0 scroll-mt-64 rounded-md border bg-card p-4 ${selected === l.decision.id ? 'border-accent ring-2 ring-accent/40' : 'border-border'}`}>
