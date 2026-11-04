@@ -8,6 +8,9 @@ import { JudgeDemoBar } from "@/components/judge-demo-bar";
 import { VoiceDictation } from "@/components/voice-dictation";
 import { AgentTelemetry } from "@/components/agent-telemetry";
 import { AgentPipeline } from "@/components/agent-pipeline";
+import { MemoryAgent } from "@/components/memory-agent";
+import { DecisionLineage } from "@/components/decision-lineage";
+import { confirmedDefenses, type Defense, type MemorySource } from "@/lib/syncexec.memory";
 import { executionItems, executionPolicy, exportReview, prepareReview, uniqueBy, type AutonomyMode } from "@/lib/syncexec.agents";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -74,10 +77,20 @@ function App() {
   const [date, setDate] = useState(TODAY);
   const [transcript, setTranscript] = useState("");
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [defenses, setDefenses] = useState<Defense[]>([]);
+  const [selectedSource, setSelectedSource] = useState<MemorySource | null>(null);
+  const jumpSource = (source: MemorySource) => {
+    setSelectedSource(source); setUrgentFocus(false); setTab(source.kind === "decision" ? "vault" : "digest");
+    window.setTimeout(() => document.getElementById(`${source.kind}-${source.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
+  };
 
   useEffect(() => {
     const saved = localStorage.getItem("syncexec.webhook");
     if (saved) setWebhook(saved);
+    try {
+      const stored: unknown = JSON.parse(localStorage.getItem("syncexec.defenses") ?? "[]");
+      if (Array.isArray(stored)) setDefenses(stored.filter((d): d is Defense => typeof d?.decisionText === "string" && typeof d?.date === "string" && typeof d?.proposal === "string" && typeof d?.reason === "string"));
+    } catch { /* ignore invalid local review history */ }
     void refresh();
   }, []);
   useEffect(() => { localStorage.setItem("syncexec.webhook", webhook); }, [webhook]);
@@ -104,6 +117,7 @@ function App() {
     setBusy("seed");
     try {
       await seedDemo();
+      setDefenses([]); localStorage.removeItem("syncexec.defenses");
       setDecisions([]); setItems([]); setMeetings([]); setAnalysis(null); setPendingAnalysis(null);
       await refresh();
       setNotice({ kind: "ok", text: "Clean demo restored: 2 meetings, 4 decisions, 4 tasks." });
@@ -167,6 +181,8 @@ function App() {
     const approvedTasks = payload.approved_tasks;
     const saved = await saveMeeting({ data: { title, date, transcript, decisions: approvedDecisions, tasks: approvedTasks.map(({ task, owner, deadline }) => ({ task, owner, deadline })) } });
     if (!saved.ok) { setBusy(""); setNotice({ kind: "err", text: saved.error }); return; }
+    const nextDefenses = uniqueBy([...defenses, ...confirmedDefenses(analysis, date)], d => `${d.decisionText}:${d.date}:${d.proposal}`);
+    setDefenses(nextDefenses); localStorage.setItem("syncexec.defenses", JSON.stringify(nextDefenses));
     setBusy("webhook");
     const hookOk = policy.webhook && await sendHook(payload);
     await refresh();
@@ -192,6 +208,7 @@ function App() {
             <span className="rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 font-mono text-[10px] uppercase text-accent">Wispr Flow Ready</span>
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
+            <MemoryAgent decisions={decisions} items={items} meetings={meetings} defenses={defenses} onSource={jumpSource} />
             <input className="field w-72 rounded-full font-mono text-xs" value={webhook} onChange={(e) => setWebhook(e.target.value)} placeholder="Make.com webhook URL" />
             <button className={btnGhost} disabled={busy === "test"} onClick={async () => {
               setBusy("test");
@@ -238,8 +255,8 @@ function App() {
           <Ingest {...{ title, setTitle, date, setDate, transcript, setTranscript }} onVoiceActive={onVoiceActive} memory={decisions.length} busy={busy === "analyze"} pulse={pulseAnalyze} onAnalyze={() => { setPulseAnalyze(false); void analyze(); }} />
         )}
         {tab === "review" && <Review mode={mode} meetingTitle={title} meetingDate={date} analysis={analysis} setAnalysis={setAnalysis} busy={busy === "confirm" || busy === "webhook"} onConfirm={confirm} goIngest={() => setTab("ingest")} />}
-        {tab === "vault" && <Vault decisions={decisions} meetings={meetings} sendHook={sendHook} />}
-        {tab === "digest" && <Digest urgentFocus={urgentFocus} setUrgentFocus={setUrgentFocus} items={items} decisions={decisions} sendHook={sendHook} setNotice={setNotice} onToggle={async (it) => {
+        {tab === "vault" && <Vault decisions={decisions} meetings={meetings} sendHook={sendHook} defenses={defenses} selectedSource={selectedSource} jumpSource={jumpSource} />}
+        {tab === "digest" && <Digest selectedSource={selectedSource} urgentFocus={urgentFocus} setUrgentFocus={setUrgentFocus} items={items} decisions={decisions} sendHook={sendHook} setNotice={setNotice} onToggle={async (it) => {
           await setTaskStatus({ data: { id: it.id, status: it.status === "open" ? "completed" : "open" } });
           await refresh();
         }} />}
@@ -422,11 +439,13 @@ function Review({ analysis, setAnalysis, busy, onConfirm, goIngest, meetingDate,
   );
 }
 
-function Vault({ decisions, meetings, sendHook }: { decisions: Decision[]; meetings: { id: string; date: string; title: string }[]; sendHook: (payload: Record<string, unknown>) => Promise<boolean> }) {
+function Vault({ decisions, meetings, sendHook, defenses, selectedSource, jumpSource }: { defenses: Defense[]; selectedSource: MemorySource | null; jumpSource: (s: MemorySource) => void; decisions: Decision[]; meetings: { id: string; date: string; title: string }[]; sendHook: (payload: Record<string, unknown>) => Promise<boolean> }) {
   const [speaker, setSpeaker] = useState("All");
   const [q, setQ] = useState("");
   const [briefOpen, setBriefOpen] = useState(false);
   const [sending, setSending] = useState(false);
+  const [timeline, setTimeline] = useState(false);
+  useEffect(() => { if (selectedSource?.kind === "decision") { setQ(""); setSpeaker("All"); } }, [selectedSource]);
   const brief = useMemo(() => governingBrief(decisions, meetings), [decisions, meetings]);
   const list = decisions.filter((d) => (speaker === "All" || d.speaker === speaker) && d.decision_text.toLowerCase().includes(q.toLowerCase())).reverse();
   return (
@@ -434,6 +453,10 @@ function Vault({ decisions, meetings, sendHook }: { decisions: Decision[]; meeti
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-semibold">Decision Memory Vault</h2>
         <Button className="h-auto whitespace-normal" disabled={!decisions.length} onClick={() => setBriefOpen(true)}><Zap className="h-4 w-4 shrink-0" />⚡ Generate Pre-Read Brief for Next Sync</Button>
+      </div>
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Decision view">
+        <Button variant={timeline ? "outline" : "default"} aria-pressed={!timeline} onClick={() => setTimeline(false)}>📋 Ledger View</Button>
+        <Button variant={timeline ? "default" : "outline"} aria-pressed={timeline} onClick={() => setTimeline(true)}>🕸️ Lineage Timeline View</Button>
       </div>
       <Dialog open={briefOpen} onOpenChange={setBriefOpen}>
         <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto">
@@ -471,35 +494,20 @@ function Vault({ decisions, meetings, sendHook }: { decisions: Decision[]; meeti
         ))}
       </div>
       {list.length === 0 && <p className="panel p-8 text-center text-muted-foreground">No decisions yet — seed memory from the header.</p>}
-      <ol className="relative space-y-3 border-l border-border pl-6">
-        {list.map((d) => {
-          const m = meetings.find((x) => x.id === d.meeting_id);
-          const dt = d.decision_text.match(/\[(\d{4}-\d{2}-\d{2})\]/)?.[1] ?? m?.date ?? d.created_at.slice(0, 10);
-          return (
-            <li key={d.id} className="panel relative p-4">
-              <span className="absolute -left-[31px] top-5 h-3 w-3 rounded-full bg-primary" />
-              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-                <Avatar name={d.speaker} /><span className="font-medium">{d.speaker}</span>
-                <span className="rounded bg-secondary px-2 py-0.5 font-mono">{dt}</span>
-                {m && <span className="text-muted-foreground">{m.title}</span>}
-                <span className="ml-auto rounded border border-success/40 bg-success/10 px-2 py-0.5 text-success">✓ Active Governing Decision</span>
-              </div>
-              <p>{d.decision_text.replace(/^\[[^\]]+\]\s*/, "")}</p>
-            </li>
-          );
-        })}
-      </ol>
+      <DecisionLineage decisions={list} allDecisions={decisions} meetings={meetings} defenses={defenses} timeline={timeline} selected={selectedSource?.id} onJump={id => { const d = decisions.find(d => d.id === id); if (d) { setQ(""); setSpeaker("All"); jumpSource({ id, kind: "decision", date: "", label: d.decision_text }); } }} />
     </div>
   );
 }
 
-function Digest({ items, decisions, sendHook, setNotice, onToggle, urgentFocus = false, setUrgentFocus }: {
+function Digest({ items, decisions, sendHook, setNotice, onToggle, urgentFocus = false, setUrgentFocus, selectedSource }: {
+  selectedSource?: MemorySource | null;
   urgentFocus?: boolean; setUrgentFocus?: (v: boolean) => void;
   items: ActionItem[]; decisions: Decision[]; sendHook: (p: Record<string, unknown>) => Promise<boolean>;
   setNotice: (n: { kind: "ok" | "err"; text: string }) => void; onToggle: (i: ActionItem) => Promise<void>;
 }) {
   const [person, setPerson] = useState("All Team");
   const [digest, setDigest] = useState("");
+  useEffect(() => { if (selectedSource?.kind === "task") setPerson("All Team"); }, [selectedSource]);
   const mine = items.filter((i) => person === "All Team" || i.owner === person);
   const open = mine.filter((i) => i.status === "open");
   const urgent = open.filter(isUrgent);
@@ -545,7 +553,7 @@ ${l(authored.map((d) => `${d.decision_text} (${d.speaker})`))}`);
         <ul className="divide-y divide-border">
           {(urgentFocus ? mine.filter((i) => isUrgent(i) && ["Rahul (Eng)", "Priya (PM)"].includes(i.owner)) : mine).length === 0 && <li className="py-4 text-sm text-muted-foreground">No tasks yet.</li>}
           {(urgentFocus ? mine.filter((i) => isUrgent(i) && ["Rahul (Eng)", "Priya (PM)"].includes(i.owner)) : mine).map((it) => (
-            <li key={it.id} className="flex flex-wrap items-center gap-3 py-3">
+            <li id={`task-${it.id}`} key={it.id} className={`flex scroll-mt-64 flex-wrap items-center gap-3 py-3 ${selectedSource?.id === it.id ? "rounded-md ring-2 ring-accent/40" : ""}`}>
               <div className="min-w-0 flex-1">
                 <p className={it.status === "completed" ? "text-muted-foreground line-through" : ""}>{it.task}</p>
                 <p className="font-mono text-xs text-muted-foreground">{it.owner} · due {it.deadline}</p>
