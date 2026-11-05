@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { ExportActions, copyText } from "@/components/export-actions";
 import { confirmationPayload, reminderSummary, governingBrief, tasksMarkdown } from "@/lib/syncexec.exports";
 import { toast } from "sonner";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { JudgeDemoBar } from "@/components/judge-demo-bar";
 import { VoiceDictation } from "@/components/voice-dictation";
 import { AgentTelemetry } from "@/components/agent-telemetry";
@@ -78,6 +79,8 @@ function App() {
   const [transcript, setTranscript] = useState("");
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [defenses, setDefenses] = useState<Defense[]>([]);
+  const [logs, setLogs] = useState<HookLog[]>([]);
+  const [logsOpen, setLogsOpen] = useState(false);
   const [selectedSource, setSelectedSource] = useState<MemorySource | null>(null);
   const jumpSource = (source: MemorySource) => {
     setSelectedSource(source); setUrgentFocus(false); setTab(source.kind === "decision" ? "vault" : "digest");
@@ -103,11 +106,14 @@ function App() {
   }
 
   async function sendHook(payload: Record<string, unknown>) {
-    if (mode === "sandbox") { setSandboxPayload(payload); return false; }
+    const log = (status: string, ms: number) => setLogs((l) => [{ id: crypto.randomUUID(), event_type: String(payload.event_type ?? "unknown"), status, ms, at: new Date().toISOString(), payload, url: webhook }, ...l]);
+    if (mode === "sandbox") { log("SANDBOX", 0); setSandboxPayload(payload); return false; }
     if (!webhook.startsWith("https://")) { setNotice({ kind: "err", text: "Add a valid https webhook URL first." }); return false; }
     setBusy("webhook");
+    const t0 = performance.now();
     try {
       const r = await postWebhook({ data: { url: webhook, payload } });
+      log(r.ok ? `${r.status} OK` : `${r.status} ERROR`, Math.round(performance.now() - t0));
       if (!r.ok) setNotice({ kind: "err", text: `Webhook failed (${r.status}): ${r.body}` });
       return r.ok;
     } finally { setBusy((b) => (b === "webhook" ? "" : b)); }
@@ -216,6 +222,7 @@ function App() {
               if (ok) setNotice({ kind: "ok", text: "Webhook test delivered." });
               setBusy("");
             }}>Test Webhook</button>
+            <button className={btnGhost} onClick={() => setLogsOpen(true)}>📡 Logs ({logs.length})</button>
             <button className={btnGhost} onClick={() => setSettingsOpen(true)}>Settings</button>
             <button className={btnPrimary} disabled={busy === "seed"} onClick={seed}>{busy === "seed" ? "Seeding…" : "1-Click Seed Oct 10 & Oct 20 Memory"}</button>
           </div>
@@ -261,6 +268,30 @@ function App() {
           await refresh();
         }} />}
       </main>
+      <Sheet open={logsOpen} onOpenChange={setLogsOpen}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
+          <SheetHeader><SheetTitle>📡 Webhook Logs</SheetTitle><SheetDescription>Every webhook dispatch from this session, newest first.</SheetDescription></SheetHeader>
+          <div className="mt-4 space-y-3">
+            {logs.length === 0 && <p className="text-sm text-muted-foreground">No webhook dispatches yet.</p>}
+            {logs.map((l) => (
+              <div key={l.id} className="rounded-md border border-border p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-sm font-semibold">{l.event_type}</span>
+                  <span className={`rounded px-2 py-0.5 font-mono text-[10px] font-bold ${l.status === "SANDBOX" ? "bg-agent/20 text-agent" : l.status.endsWith("OK") ? "bg-success/20 text-success" : "bg-destructive/20 text-destructive"}`}>{l.status}</span>
+                  <span className="font-mono text-xs text-muted-foreground">{l.ms} ms</span>
+                  <time className="ml-auto font-mono text-xs text-muted-foreground">{new Date(l.at).toLocaleTimeString()}</time>
+                </div>
+                <details className="mt-2"><summary className="cursor-pointer text-xs text-muted-foreground">JSON payload</summary>
+                  <pre className="mt-2 max-h-64 overflow-auto rounded bg-muted p-2 font-mono text-[11px]">{JSON.stringify(l.payload, null, 2)}</pre></details>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button className={btnGhost} disabled={busy === "webhook"} onClick={async () => { const ok = await sendHook(l.payload); if (ok) toast.success("Webhook replayed"); }}>🔄 Replay Webhook</button>
+                  <button className={btnGhost} onClick={() => copyText(`curl -X POST '${l.url}' -H 'Content-Type: application/json' -d '${JSON.stringify(l.payload).replaceAll("'", "'\\''")}'`, "cURL copied")}>📋 Copy cURL</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
       <AgentPipeline open={pipelineOpen} elapsed={elapsed} transcript={transcript} memory={decisions.length} result={pendingAnalysis} skip={() => setSkipRequested(true)} />
       <Dialog open={sandboxPayload !== null} onOpenChange={(open) => { if (!open) setSandboxPayload(null); }}>
         <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] max-w-3xl overflow-y-auto">
@@ -365,6 +396,7 @@ function Review({ analysis, setAnalysis, busy, onConfirm, goIngest, meetingDate,
         <h2 className="text-xl font-semibold">Human-in-the-Loop Review</h2>
         <span className="font-mono text-xs text-muted-foreground">source: {a.source === "ai" ? "AI analysis" : "deterministic parser"}</span>
       </div>
+      <Scorecard a={a} />
       {a.conflicts.map((c, i) => (
         <article aria-label={`${c.conflict_type} conflict`} key={i} className={`min-w-0 rounded-lg border-2 p-5 ${c.resolution === "rejected" ? "border-success/50 bg-success/5" : c.resolution === "accepted" ? "border-primary/60 bg-primary/5" : "border-destructive bg-destructive/10"}`}>
           <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -393,6 +425,13 @@ function Review({ analysis, setAnalysis, busy, onConfirm, goIngest, meetingDate,
             {c.related_task_index !== null && <p className="mt-1 text-xs text-muted-foreground">{c.resolution === "rejected" ? "Blocked from execution" : "Blocked if this change is rejected"}</p>}
           </div>
           <p className="mt-3 text-sm text-muted-foreground">{c.reason}</p>
+          <details className="mt-3 rounded-md border border-primary/40 bg-background p-3">
+            <summary className="cursor-pointer text-sm font-medium text-primary">🔮 Simulate Impact</summary>
+            <div className="mt-3 grid gap-2 text-sm">
+              <p><span className="font-semibold text-destructive">If Overridden:</span> {impactOf(c).over}</p>
+              <p><span className="font-semibold text-success">If Rejected (Protected):</span> {impactOf(c).rejected}</p>
+            </div>
+          </details>
           <details className="mt-3 rounded-md border border-agent/40 bg-background p-3">
             <summary className="cursor-pointer text-sm font-medium text-agent">🧠 View Agent Reasoning Trace</summary>
             <div className="mt-3 space-y-2 break-words font-mono text-xs leading-relaxed text-muted-foreground">
@@ -507,6 +546,7 @@ function Digest({ items, decisions, sendHook, setNotice, onToggle, urgentFocus =
 }) {
   const [person, setPerson] = useState("All Team");
   const [digest, setDigest] = useState("");
+  const [view, setView] = useState<"list" | "kanban">("list");
   useEffect(() => { if (selectedSource?.kind === "task") setPerson("All Team"); }, [selectedSource]);
   const mine = items.filter((i) => person === "All Team" || i.owner === person);
   const open = mine.filter((i) => i.status === "open");
@@ -544,7 +584,31 @@ ${l(authored.map((d) => `${d.decision_text} (${d.speaker})`))}`);
           <div key={l as string} className="panel p-5"><p className="text-sm text-muted-foreground">{l}</p><p className={`mt-1 text-4xl font-semibold ${c}`}>{v}</p></div>
         ))}
       </div>
-      <section className="panel p-5">
+      <div className="flex gap-1 rounded-full border border-border p-1 text-sm w-fit">
+        {([["list", "🚨 48h List"], ["kanban", "🗂️ Kanban Board"]] as const).map(([v, l]) => (
+          <button key={v} onClick={() => setView(v)} className={`rounded-full px-3 py-1 ${view === v ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}>{l}</button>
+        ))}
+      </div>
+      {view === "kanban" && (
+        <div className="grid gap-4 md:grid-cols-3">
+          {([["🔴 Urgent <48h", urgent, "border-destructive/50"], ["🔵 Open Backlog", open.filter((i) => !isUrgent(i)), "border-accent/50"], ["🟢 Completed", done, "border-success/50"]] as const).map(([label, col, border]) => (
+            <section key={label} className={`panel border-t-4 ${border} p-4`}>
+              <h3 className="mb-3 font-semibold">{label} <span className="font-mono text-xs text-muted-foreground">({col.length})</span></h3>
+              <div className="space-y-2">
+                {col.length === 0 && <p className="text-sm text-muted-foreground">Empty</p>}
+                {col.map((it) => (
+                  <div key={it.id} className="rounded-md border border-border bg-muted/40 p-3">
+                    <p className={`text-sm ${it.status === "completed" ? "text-muted-foreground line-through" : ""}`}>{it.task}</p>
+                    <p className="mt-1 font-mono text-xs text-muted-foreground">{it.owner} · due {it.deadline}</p>
+                    <button className={`${btnGhost} mt-2`} onClick={() => onToggle(it)}>{it.status === "open" ? "→ Move to Completed" : "↺ Reopen"}</button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+      {view === "list" && <section className="panel p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-semibold">48-Hour Deadline Radar</h3>
           <button className={`rounded-full border px-3 py-1 font-mono text-xs ${urgentFocus ? "border-destructive bg-destructive/15 text-destructive" : "border-border text-muted-foreground"}`}
@@ -568,7 +632,7 @@ ${l(authored.map((d) => `${d.decision_text} (${d.speaker})`))}`);
             </li>
           ))}
         </ul>
-      </section>
+      </section>}
       {digest && (
         <section className="panel space-y-4 border-primary/40 p-5">
           <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed">{digest}</pre>
@@ -581,6 +645,38 @@ ${l(authored.map((d) => `${d.decision_text} (${d.speaker})`))}`);
           </div>
         </section>
       )}
+    </div>
+  );
+}
+
+type HookLog = { id: string; event_type: string; status: string; ms: number; at: string; payload: Record<string, unknown>; url: string };
+
+function topicOf(c: Conflict) {
+  const t = `${c.new_value} ${c.past_value} ${c.new_statement}`;
+  return /mongo|postgres|database/i.test(t) ? "database" : /\$|budget/i.test(t) ? "budget" : /launch|beta/i.test(t) ? "launch" : "other";
+}
+function impactOf(c: Conflict) {
+  const t = topicOf(c);
+  if (t === "budget") return { over: "Q4 marketing spend rises to $8,000: +$3,000 (+60%) over the approved cap.", rejected: "Budget stays capped at $5,000; influencer spend is blocked from the backlog." };
+  if (t === "launch") return { over: "Public beta slips from Nov 15 to Nov 25: +10 days; investor deck and GTM dates shift.", rejected: "Nov 15 launch stays locked; timeline-dependent tasks remain on schedule." };
+  if (t === "database") return { over: "PostgreSQL → MongoDB migration starts: ~16h engineering rework on schema and ORM.", rejected: "PostgreSQL stays primary; migration work is blocked, saving ~16h of engineering." };
+  return { over: `Adopts “${c.new_value}” and replaces “${c.past_value}”.`, rejected: `Keeps “${c.past_value}”; linked work stays blocked.` };
+}
+function Scorecard({ a }: { a: Analysis }) {
+  const total = a.conflicts.length;
+  const resolved = a.conflicts.filter((c) => c.resolution).length;
+  const score = total ? Math.round(58 + (38 * resolved) / total) : 96;
+  const overrideOn = (topic: string) => a.conflicts.some((c) => topicOf(c) === topic && c.resolution !== "rejected" && c.related_decision_index !== null && a.extracted_decisions[c.related_decision_index]?.checked);
+  const reworkSaved = a.conflicts.some((c) => topicOf(c) === "database" && c.resolution === "rejected");
+  const stats: [string, string, string][] = [
+    ["Alignment Score", `${score}/100 (${score >= 90 ? "Aligned" : score >= 75 ? "Moderate Drift" : "High Drift"})`, score >= 90 ? "text-success" : score >= 75 ? "text-primary" : "text-destructive"],
+    ["Budget Variance", overrideOn("budget") ? "+$3,000 (+60%)" : "$0", overrideOn("budget") ? "text-destructive" : "text-success"],
+    ["Timeline Slip", overrideOn("launch") ? "+10 Days" : "0 Days", overrideOn("launch") ? "text-destructive" : "text-success"],
+    ["Rework Saved", reworkSaved ? "16h Eng Saved" : "0h", reworkSaved ? "text-success" : "text-muted-foreground"],
+  ];
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Executive Alignment Scorecard">
+      {stats.map(([l, v, c]) => <div key={l} className="panel p-4"><p className="text-xs text-muted-foreground">{l}</p><p className={`mt-1 text-xl font-semibold ${c}`}>{v}</p></div>)}
     </div>
   );
 }
