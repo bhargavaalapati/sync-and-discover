@@ -106,7 +106,7 @@ function App() {
   }
 
   async function sendHook(payload: Record<string, unknown>) {
-    const log = (status: string, ms: number) => setLogs((l) => [{ id: crypto.randomUUID(), event_type: String(payload.event_type ?? "unknown"), status, ms, at: new Date().toISOString(), payload, url: webhook }, ...l]);
+    const log = (status: string, ms: number) => setLogs((l) => [{ id: crypto.randomUUID(), event_type: String(payload["event_type"] ?? "unknown"), status, ms, at: new Date().toISOString(), payload, url: webhook }, ...l]);
     if (mode === "sandbox") { log("SANDBOX", 0); setSandboxPayload(payload); return false; }
     if (!webhook.startsWith("https://")) { setNotice({ kind: "err", text: "Add a valid https webhook URL first." }); return false; }
     setBusy("webhook");
