@@ -19,7 +19,7 @@ import { loadAll, saveMeeting, seedDemo, setTaskStatus } from "@/lib/syncexec.db
 import {
   DEFAULT_WEBHOOK, DEMO_TRANSCRIPT, SEED, TODAY, deterministicAnalyze, isUrgent, parseSpeakers,
   approvedItems, isConflictBlocked, resolveConflict, shortDate,
-  type ActionItem, type Analysis, type Decision,
+  type ActionItem, type Analysis, type Conflict, type Decision,
 } from "@/lib/syncexec";
 import { analyzeWithAI, postWebhook } from "@/lib/syncexec.functions";
 
