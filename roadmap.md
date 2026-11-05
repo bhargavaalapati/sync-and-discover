@@ -5,6 +5,6 @@
 - [x] Run 23 rule/regression tests and verify repeated reset, simulated voice, automatic/skip analysis, review and sandbox with zero webhook POSTs.
 
 # Memory agent and decision lineage
-- [ ] Add global memory palette with grounded answers and exact-record source navigation.
-- [ ] Add ledger/lineage views, governing/superseded/protected statuses and confirmed rejection evidence.
-- [ ] Verify rules, source navigation, keyboard shortcuts and compact layout.
+- [x] Add global memory palette with grounded answers and exact-record source navigation.
+- [x] Add ledger/lineage views, governing/superseded/protected statuses and browser-local confirmed rejection evidence without changing existing CRUD.
+- [x] Verify 28 rules, live streamed answers, decision/task source navigation, keyboard shortcuts and compact layout.
